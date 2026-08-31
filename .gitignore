@@ -1,0 +1,25 @@
+# Build
+target/
+*.class
+*.jar
+!lib/*.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / 本地配置
+.env
+.env.local
+*.local
+
+# 运行时产物
+.traces/
+agentcli.log
