@@ -1,10 +1,15 @@
 package com.agentcli;
 
+import com.agentcli.llm.ChatClient;
+import com.agentcli.llm.DeepSeekClient;
+import com.agentcli.llm.Message;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -51,6 +56,15 @@ public final class Main {
             return;
         }
 
+        // Day 1：预建 LLM 客户端；key 缺失时仍可启动，仅作提示，不阻塞。
+        ChatClient llm = null;
+        try {
+            llm = DeepSeekClient.fromEnv();
+        } catch (IllegalStateException e) {
+            System.out.println("[warn] " + e.getMessage());
+            System.out.println("      请复制 .env.example 为 .env 并填入 DEEPSEEK_API_KEY 后再试。");
+        }
+
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         Runtime.getRuntime().addShutdownHook(new Thread(() -> System.out.println("\nBye.")));
 
@@ -75,8 +89,17 @@ public final class Main {
                 printTips();
                 continue;
             }
-            // Day 0：直接回显，Day 1+ 接入 LLM
-            System.out.println("[echo] " + input + "  (Day 0：LLM 接入从 Day 1 开始)");
+            // Day 1：接入 LLM 真实调用
+            if (llm == null) {
+                System.out.println("[warn] 未配置 LLM，请先在 .env 填 DEEPSEEK_API_KEY");
+                continue;
+            }
+            List<Message> messages = List.of(new Message("user", input));
+            try {
+                System.out.println(llm.call(messages));
+            } catch (Exception e) {
+                System.out.println("[error] " + e.getMessage());
+            }
         }
     }
 
