@@ -1,6 +1,6 @@
 # Day 2 · 多轮对话历史 + System Prompt
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成（待填 key 做真实多轮验证）　|　实际日期：2026-09-02　|　commit：________
 
 ## 目标
 
@@ -8,11 +8,11 @@ LLM 记得上一轮说了什么；system prompt 里注入当前日期。
 
 ## 任务清单
 
-- [ ] REPL 维护 `List<Message> conversationHistory`，user / assistant 都追加
-- [ ] 每轮请求 messages = `[system] + history + [本轮 user]`；响应 assistant 消息回写 history
-- [ ] 新增 `prompt/SystemPrompt.java`：身份（AgentCli）、当前日期/时区、简洁规则
-- [ ] 新增命令：`/clear`（清空 history）、`/history`（打印条数和最近 3 条）
-- [ ] 测试：构造多轮消息验证请求体序列化含 system + 历史
+- [x] REPL 维护 `List<Message> conversationHistory`，user / assistant 都追加
+- [x] 每轮请求 messages = `[system] + history + [本轮 user]`；响应 assistant 消息回写 history
+- [x] 新增 `prompt/SystemPrompt.java`：身份（AgentCli）、当前日期/时区、简洁规则
+- [x] 新增命令：`/clear`（清空 history）、`/history`（打印条数和最近 3 条）
+- [x] 测试：构造多轮消息验证请求体序列化含 system + 历史
 
 ## 涉及文件
 

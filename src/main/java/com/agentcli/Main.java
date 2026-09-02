@@ -3,11 +3,13 @@ package com.agentcli;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.DeepSeekClient;
 import com.agentcli.llm.Message;
+import com.agentcli.prompt.SystemPrompt;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,7 @@ public final class Main {
             "    ╚═╝┴  └─┘┴└─┴ ┴─┴┘  ╚═╝╚═╝╚═╝ ╩ ",
             "",
             "    Java Agent CLI · 可视化 ReAct + 录制回放即技能",
-            "    v" + VERSION + " · Day 0 骨架",
+            "    v" + VERSION + " · Day 2 多轮对话",
             ""
     );
 
@@ -68,6 +70,9 @@ public final class Main {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         Runtime.getRuntime().addShutdownHook(new Thread(() -> System.out.println("\nBye.")));
 
+        // Day 2：维护多轮对话历史（system prompt 每轮单独拼，不入 history）
+        List<Message> history = new ArrayList<>();
+
         while (true) {
             System.out.print(PROMPT);
             String line = reader.readLine();
@@ -89,18 +94,52 @@ public final class Main {
                 printTips();
                 continue;
             }
+            if ("/clear".equals(input)) {
+                history.clear();
+                System.out.println("[history] 已清空");
+                continue;
+            }
+            if ("/history".equals(input)) {
+                printHistory(history);
+                continue;
+            }
             // Day 1：接入 LLM 真实调用
             if (llm == null) {
                 System.out.println("[warn] 未配置 LLM，请先在 .env 填 DEEPSEEK_API_KEY");
                 continue;
             }
-            List<Message> messages = List.of(new Message("user", input));
+            // Day 2：组装 [system] + history + [本轮 user]
+            history.add(new Message("user", input));
+            List<Message> messages = new ArrayList<>();
+            messages.add(new Message("system", SystemPrompt.build()));
+            messages.addAll(history);
             try {
-                System.out.println(llm.call(messages));
+                String reply = llm.call(messages);
+                history.add(new Message("assistant", reply));
+                System.out.println(reply);
             } catch (Exception e) {
+                // 调用失败则回滚本轮 user，避免破坏会话一致性
+                history.remove(history.size() - 1);
                 System.out.println("[error] " + e.getMessage());
             }
         }
+    }
+
+    private static void printHistory(List<Message> history) {
+        System.out.println("[history] 共 " + history.size() + " 条");
+        if (history.isEmpty()) {
+            return;
+        }
+        int from = Math.max(0, history.size() - 3);
+        for (int i = from; i < history.size(); i++) {
+            Message m = history.get(i);
+            System.out.printf("  %-9s %s%n", "[" + m.role() + "]", summarize(m.content()));
+        }
+    }
+
+    private static String summarize(String content) {
+        String oneLine = content.replace('\n', ' ');
+        return oneLine.length() <= 60 ? oneLine : oneLine.substring(0, 60) + "…";
     }
 
     private static void printTips() {
@@ -108,6 +147,8 @@ public final class Main {
         tips.put(":help", "显示本帮助");
         tips.put(":version", "查看版本");
         tips.put(":quit", "退出");
+        tips.put("/clear", "清空对话历史");
+        tips.put("/history", "查看历史（条数与最近 3 条）");
         tips.forEach((cmd, desc) -> System.out.printf("  %-10s · %s%n", cmd, desc));
         System.out.println();
     }
