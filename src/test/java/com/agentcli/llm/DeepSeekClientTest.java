@@ -41,6 +41,13 @@ class DeepSeekClientTest {
     }
 
     @Test
+    void marksRequestBodyAsStreaming() {
+        DeepSeekClient c = new DeepSeekClient("k", "https://api.deepseek.com/", "deepseek-chat");
+        String body = c.buildRequestBody(java.util.List.of(new Message("user", "hi")), true);
+        org.junit.jupiter.api.Assertions.assertTrue(body.contains("\"stream\":true"));
+    }
+
+    @Test
     void buildsRequestBodyWithSystemAndHistory() {
         DeepSeekClient c = new DeepSeekClient("k", "https://api.deepseek.com/", "deepseek-chat");
         String body = c.buildRequestBody(java.util.List.of(

@@ -1,6 +1,6 @@
 # Day 3 · SSE 流式输出
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成（待填 key 做真实流式验证）　|　实际日期：2026-09-03　|　commit：________
 
 ## 目标
 
@@ -8,12 +8,12 @@
 
 ## 任务清单
 
-- [ ] `ChatClient` 加流式方法：`void callStream(List<Message> messages, Consumer<String> onDelta)`
-- [ ] `DeepSeekClient` 实现：请求体 `"stream":true`，逐行读 SSE
-- [ ] SSE 解析：`data: {...}` 行 → `choices[0].delta.content` 累加；`data: [DONE]` 结束
-- [ ] REPL 打印：每个 delta 直接 `System.out.print` + flush，结束后补 `\n`
-- [ ] 非流式 `call()` 保留（Planner/压缩后面要用非流式）
-- [ ] 测试：喂一段模拟 SSE 文本流，验证拼接结果正确
+- [x] `ChatClient` 加流式方法：`void callStream(List<Message> messages, Consumer<String> onDelta)`
+- [x] `DeepSeekClient` 实现：请求体 `"stream":true`，逐行读 SSE
+- [x] SSE 解析：`data: {...}` 行 → `choices[0].delta.content` 累加；`data: [DONE]` 结束
+- [x] REPL 打印：每个 delta 直接 `System.out.print` + flush，结束后补 `\n`
+- [x] 非流式 `call()` 保留（Planner/压缩后面要用非流式）
+- [x] 测试：喂一段模拟 SSE 文本流，验证拼接结果正确
 
 ## 涉及文件
 

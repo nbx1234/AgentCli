@@ -40,7 +40,7 @@ public final class Main {
             "    ╚═╝┴  └─┘┴└─┴ ┴─┴┘  ╚═╝╚═╝╚═╝ ╩ ",
             "",
             "    Java Agent CLI · 可视化 ReAct + 录制回放即技能",
-            "    v" + VERSION + " · Day 2 多轮对话",
+            "    v" + VERSION + " · Day 3 SSE 流式",
             ""
     );
 
@@ -113,15 +113,23 @@ public final class Main {
             List<Message> messages = new ArrayList<>();
             messages.add(new Message("system", SystemPrompt.build()));
             messages.addAll(history);
+            // Day 3：流式输出，逐字打印
+            StringBuilder sb = new StringBuilder();
             try {
-                String reply = llm.call(messages);
-                history.add(new Message("assistant", reply));
-                System.out.println(reply);
+                llm.callStream(messages, delta -> {
+                    sb.append(delta);
+                    System.out.print(delta);
+                    System.out.flush();
+                });
             } catch (Exception e) {
                 // 调用失败则回滚本轮 user，避免破坏会话一致性
                 history.remove(history.size() - 1);
+                System.out.println();
                 System.out.println("[error] " + e.getMessage());
+                continue;
             }
+            System.out.println();
+            history.add(new Message("assistant", sb.toString()));
         }
     }
 
