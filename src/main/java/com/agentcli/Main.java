@@ -40,7 +40,7 @@ public final class Main {
             "    ╚═╝┴  └─┘┴└─┴ ┴─┴┘  ╚═╝╚═╝╚═╝ ╩ ",
             "",
             "    Java Agent CLI · 可视化 ReAct + 录制回放即技能",
-            "    v" + VERSION + " · Day 3 SSE 流式",
+            "    v" + VERSION + " · Day 4 Tool schema",
             ""
     );
 

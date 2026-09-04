@@ -1,6 +1,6 @@
 # Day 4 · Tool Schema + tool_call 解析
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成（解析层完成，执行层见 Day 5）　|　实际日期：2026-09-04　|　commit：________
 
 ## 目标
 
@@ -8,12 +8,12 @@
 
 ## 任务清单
 
-- [ ] 新增 `tool/ToolDefinition.java`：name / description / JSON Schema parameters，可序列化为 OpenAI tools 格式
-- [ ] 新增 `tool/ToolCall.java`：`record ToolCall(String id, String name, String argumentsJson)`
-- [ ] 新增 `tool/ToolRegistry.java`：register / lookup / listDefinitions()（工具实现明天写，今天空壳）
-- [ ] `ChatClient.call` 重载：接受 `List<ToolDefinition>`；响应解析出 `message.tool_calls`
-- [ ] Message 扩展：支持携带 tool_calls 和 tool_call_id（role=tool），不再是纯 content record
-- [ ] 测试：canned 响应解析出 2 个 tool_call，arguments JSON 可反序列化成 Map
+- [x] 新增 `tool/ToolDefinition.java`：name / description / JSON Schema parameters，可序列化为 OpenAI tools 格式
+- [x] 新增 `tool/ToolCall.java`：`record ToolCall(String id, String name, String argumentsJson)`
+- [x] 新增 `tool/ToolRegistry.java`：register / lookup / listDefinitions()（工具实现明天写，今天空壳）
+- [x] `ChatClient.call` 重载：接受 `List<ToolDefinition>`；响应解析出 `message.tool_calls`（经 LlmResponse 携带）
+- [x] Message 扩展：支持携带 tool_calls 和 tool_call_id（role=tool），不再是纯 content record
+- [x] 测试：canned 响应解析出 2 个 tool_call，arguments JSON 可反序列化成 Map
 
 ## 涉及文件
 

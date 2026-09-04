@@ -25,9 +25,10 @@ class DeepSeekClientTest {
     }
 
     @Test
-    void rejectsMissingContent() {
+    void emptyContentIsAllowed() throws IOException {
+        // 工具调用（tool_call）响应可能无 content，Day 4 起不再抛错
         String json = "{\"choices\":[{\"message\":{\"role\":\"assistant\"}}]}";
-        assertThrows(IOException.class, () -> client.parseResponse(json));
+        assertEquals("", client.parseResponse(json));
     }
 
     @Test

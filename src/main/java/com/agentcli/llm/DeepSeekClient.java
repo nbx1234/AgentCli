@@ -1,6 +1,8 @@
 package com.agentcli.llm;
 
 import com.agentcli.Env;
+import com.agentcli.tool.ToolCall;
+import com.agentcli.tool.ToolDefinition;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.io.BufferedReader;
@@ -11,6 +13,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -69,14 +72,20 @@ public class DeepSeekClient implements ChatClient {
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
-    /** 区块式调用（stream=false），保留给后续非交互场景。 */
+    /** 区块式调用（stream=false），不带工具，保留给后续非交互场景。 */
     @Override
     public String call(List<Message> messages) throws IOException {
-        HttpURLConnection conn = openConnection(messages, false);
+        return call(messages, List.of()).content();
+    }
+
+    /** 区块式调用（stream=false），支持工具定义；解析并返回工具调用。 */
+    @Override
+    public LlmResponse call(List<Message> messages, List<ToolDefinition> tools) throws IOException {
+        HttpURLConnection conn = openConnection(messages, false, tools);
         try {
             int code = conn.getResponseCode();
             if (code >= 200 && code < 300) {
-                return parseResponse(readStream(conn.getInputStream()));
+                return parseLlmResponse(readStream(conn.getInputStream()));
             }
             throw new IOException("DeepSeek HTTP " + code + ": " + readStream(conn.getErrorStream()));
         } finally {
@@ -87,7 +96,7 @@ public class DeepSeekClient implements ChatClient {
     /** 流式调用（stream=true）：逐行读 SSE，每个增量回调 onDelta。 */
     @Override
     public void callStream(List<Message> messages, Consumer<String> onDelta) throws IOException {
-        HttpURLConnection conn = openConnection(messages, true);
+        HttpURLConnection conn = openConnection(messages, true, List.of());
         try {
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {
@@ -108,8 +117,9 @@ public class DeepSeekClient implements ChatClient {
         }
     }
 
-    private HttpURLConnection openConnection(List<Message> messages, boolean stream) throws IOException {
-        String body = buildRequestBody(messages, stream);
+    private HttpURLConnection openConnection(List<Message> messages, boolean stream,
+                                             List<ToolDefinition> tools) throws IOException {
+        String body = buildRequestBody(messages, stream, tools);
         HttpURLConnection conn = (HttpURLConnection) URI.create(baseUrl + "/chat/completions")
                 .toURL().openConnection();
         conn.setRequestMethod("POST");
@@ -124,19 +134,48 @@ public class DeepSeekClient implements ChatClient {
         return conn;
     }
 
-    /** 组装 body：{"model":..., "stream":..., "messages":[...]}。 */
-    String buildRequestBody(List<Message> messages, boolean stream) {
-        String json = messages.stream()
-                .map(m -> "{\"role\":\"" + m.role()
-                        + "\",\"content\":\"" + escape(m.content()) + "\"}")
+    /** 组装 body：{"model":..., "stream":..., "messages":[...], "tools":[...]}。 */
+    String buildRequestBody(List<Message> messages, boolean stream, List<ToolDefinition> tools) {
+        String msgJson = messages.stream()
+                .map(DeepSeekClient::serializeMessage)
                 .collect(Collectors.joining(","));
-        return "{\"model\":\"" + model
-                + "\",\"stream\":" + stream + ",\"messages\":[" + json + "]}";
+        StringBuilder body = new StringBuilder("{\"model\":\"")
+                .append(model)
+                .append("\",\"stream\":").append(stream)
+                .append(",\"messages\":[").append(msgJson).append("]");
+        if (tools != null && !tools.isEmpty()) {
+            String toolsJson = tools.stream()
+                    .map(ToolDefinition::toToolsJson)
+                    .collect(Collectors.joining(","));
+            body.append(",\"tools\":[").append(toolsJson).append("]");
+        }
+        return body.append("}").toString();
     }
 
-    /** 兼容：默认非流式请求体（供测试构造校验）。 */
+    /** 单个消息序列化成请求体 JSON 对象。 */
+    private static String serializeMessage(Message m) {
+        if ("tool".equals(m.role())) {
+            return "{\"role\":\"tool\",\"tool_call_id\":\"" + m.toolCallId()
+                    + "\",\"content\":\"" + escape(m.content()) + "\"}";
+        }
+        if (m.toolCalls() != null && !m.toolCalls().isEmpty()) {
+            String calls = m.toolCalls().stream()
+                    .map(tc -> "{\"id\":\"" + tc.id() + "\",\"type\":\"function\",\"function\":{\"name\":\""
+                            + tc.name() + "\",\"arguments\":\"" + escape(tc.argumentsJson()) + "\"}}")
+                    .collect(Collectors.joining(","));
+            return "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[" + calls + "]}";
+        }
+        return "{\"role\":\"" + m.role() + "\",\"content\":\"" + escape(m.content()) + "\"}";
+    }
+
+    /** 兼容：默认非流式、不带工具（供测试构造校验）。 */
+    String buildRequestBody(List<Message> messages, boolean stream) {
+        return buildRequestBody(messages, stream, List.of());
+    }
+
+    /** 兼容：默认非流式（供测试构造校验）。 */
     String buildRequestBody(List<Message> messages) {
-        return buildRequestBody(messages, false);
+        return buildRequestBody(messages, false, List.of());
     }
 
     private static String escape(String s) {
@@ -147,18 +186,41 @@ public class DeepSeekClient implements ChatClient {
                 .replace("\t", "\\t");
     }
 
-    /** 解析响应，取 choices[0].message.content；判空规避 choices 为空或 finish_reason=length。 */
-    String parseResponse(String json) throws IOException {
+    /** 解析响应：返回文本 + 工具调用列表（两者可能其一为空）。 */
+    LlmResponse parseLlmResponse(String json) throws IOException {
         JsonNode root = MAPPER.readTree(json);
         JsonNode choices = root.get("choices");
         if (choices == null || !choices.isArray() || choices.isEmpty()) {
             throw new IOException("DeepSeek 响应缺少 choices");
         }
         JsonNode message = choices.get(0).get("message");
-        if (message == null || message.get("content") == null || message.get("content").isNull()) {
-            throw new IOException("DeepSeek 响应缺少 message.content");
+        if (message == null) {
+            throw new IOException("DeepSeek 响应缺少 message");
         }
-        return message.get("content").asText();
+        JsonNode contentNode = message.get("content");
+        String content = (contentNode == null || contentNode.isNull()) ? "" : contentNode.asText();
+        return new LlmResponse(content, parseToolCalls(message));
+    }
+
+    private static List<ToolCall> parseToolCalls(JsonNode message) {
+        JsonNode tcs = message.get("tool_calls");
+        if (tcs == null || !tcs.isArray() || tcs.isEmpty()) {
+            return List.of();
+        }
+        List<ToolCall> out = new ArrayList<>();
+        for (JsonNode tc : tcs) {
+            JsonNode fn = tc.get("function");
+            String id = tc.path("id").asText(null);
+            String name = (fn != null) ? fn.path("name").asText("") : "";
+            String args = (fn != null) ? fn.path("arguments").asText("") : "";
+            out.add(new ToolCall(id, name, args));
+        }
+        return out;
+    }
+
+    /** 解析响应，取 choices[0].message.content；判空规避 choices 为空或 finish_reason=length。 */
+    String parseResponse(String json) throws IOException {
+        return parseLlmResponse(json).content();
     }
 
     private static String readStream(InputStream in) throws IOException {
