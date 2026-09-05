@@ -1,14 +1,18 @@
 package com.agentcli;
 
+import com.agentcli.agent.Agent;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.DeepSeekClient;
 import com.agentcli.llm.Message;
-import com.agentcli.prompt.SystemPrompt;
+import com.agentcli.tool.ToolDefinition;
+import com.agentcli.tool.ToolRegistry;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,7 +44,7 @@ public final class Main {
             "    ╚═╝┴  └─┘┴└─┴ ┴─┴┘  ╚═╝╚═╝╚═╝ ╩ ",
             "",
             "    Java Agent CLI · 可视化 ReAct + 录制回放即技能",
-            "    v" + VERSION + " · Day 4 Tool schema",
+            "    v" + VERSION + " · Day 5 ReAct 循环",
             ""
     );
 
@@ -60,8 +64,10 @@ public final class Main {
 
         // Day 1：预建 LLM 客户端；key 缺失时仍可启动，仅作提示，不阻塞。
         ChatClient llm = null;
+        Agent agent = null;
         try {
             llm = DeepSeekClient.fromEnv();
+            agent = buildAgent(llm);
         } catch (IllegalStateException e) {
             System.out.println("[warn] " + e.getMessage());
             System.out.println("      请复制 .env.example 为 .env 并填入 DEEPSEEK_API_KEY 后再试。");
@@ -104,32 +110,17 @@ public final class Main {
                 continue;
             }
             // Day 1：接入 LLM 真实调用
-            if (llm == null) {
+            if (llm == null || agent == null) {
                 System.out.println("[warn] 未配置 LLM，请先在 .env 填 DEEPSEEK_API_KEY");
                 continue;
             }
-            // Day 2：组装 [system] + history + [本轮 user]
-            history.add(new Message("user", input));
-            List<Message> messages = new ArrayList<>();
-            messages.add(new Message("system", SystemPrompt.build()));
-            messages.addAll(history);
-            // Day 3：流式输出，逐字打印
-            StringBuilder sb = new StringBuilder();
+            // Day 5：交给 Agent 走 ReAct 循环（内部处理历史、工具调用与答案）
             try {
-                llm.callStream(messages, delta -> {
-                    sb.append(delta);
-                    System.out.print(delta);
-                    System.out.flush();
-                });
+                String reply = agent.run(input, history);
+                System.out.println(reply);
             } catch (Exception e) {
-                // 调用失败则回滚本轮 user，避免破坏会话一致性
-                history.remove(history.size() - 1);
-                System.out.println();
                 System.out.println("[error] " + e.getMessage());
-                continue;
             }
-            System.out.println();
-            history.add(new Message("assistant", sb.toString()));
         }
     }
 
@@ -143,6 +134,16 @@ public final class Main {
             Message m = history.get(i);
             System.out.printf("  %-9s %s%n", "[" + m.role() + "]", summarize(m.content()));
         }
+    }
+
+    /** 组装 Agent 并注册临时假工具（get_current_time），用于验证 ReAct 闭环。 */
+    private static Agent buildAgent(ChatClient llm) {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(
+                new ToolDefinition("get_current_time", "获取当前日期与时间（东八区）",
+                        "{\"type\":\"object\",\"properties\":{}}"),
+                args -> LocalDateTime.now(ZoneId.of("Asia/Shanghai")).toString().replace('T', ' '));
+        return new Agent(llm, registry);
     }
 
     private static String summarize(String content) {

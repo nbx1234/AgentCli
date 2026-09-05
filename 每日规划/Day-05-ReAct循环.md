@@ -1,6 +1,6 @@
 # Day 5 · ReAct 循环
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成（假工具闭环跑通，真工具与事件钩子见 Day 6）　|　实际日期：2026-09-05　|　commit：________
 
 ## 目标
 
@@ -8,12 +8,12 @@ think → act → observe 循环跑通，LLM 能连续调用工具后给出最�
 
 ## 任务清单
 
-- [ ] 新增 `agent/Agent.java`：`String run(String userInput)`
-- [ ] 循环逻辑：调 LLM → 有 tool_calls 就执行 → 结果以 role=tool 回传 → 再调 LLM → 直到无 tool_calls 返回 content
-- [ ] 安全阀：最大迭代 10 次，超限终止并提示
-- [ ] 临时注册 1 个假工具（如 `get_current_time`）验证闭环，真工具明天写
-- [ ] 过程输出：每步打印 `⚡ tool: name(args...)` 简洁行（后续接 Web）
-- [ ] 测试：mock ChatClient 返回"先 tool_call 再 final answer"，验证循环收敛且 message 序列正确
+- [x] 新增 `agent/Agent.java`：`String run(String userInput, List<Message> history)`
+- [x] 循环逻辑：调 LLM → 有 tool_calls 就执行 → 结果以 role=tool 回传 → 再调 LLM → 直到无 tool_calls 返回 content
+- [x] 安全阀：最大迭代 10 次，超限抛错并回滚本轮消息
+- [x] 临时注册 1 个假工具（`get_current_time`）验证闭环，真工具明天写
+- [x] 过程输出：每步打印 `⚡ tool: name(args...)` 简洁行（后续接 Web）
+- [x] 测试：mock ChatClient 返回"先 tool_call 再 final answer"，验证循环收敛且 message 序列正确
 
 ## 涉及文件
 
