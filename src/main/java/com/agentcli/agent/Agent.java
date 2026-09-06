@@ -10,6 +10,7 @@ import com.agentcli.tool.ToolRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * ReAct 循环：think → act → observe。
@@ -51,7 +52,7 @@ public class Agent {
                     throw new IllegalStateException("达到最大迭代次数(" + MAX_ITERATIONS + ")，任务未完成");
                 }
                 List<Message> messages = new ArrayList<>();
-                messages.add(new Message("system", SystemPrompt.build()));
+                messages.add(new Message("system", SystemPrompt.build() + toolGuidance(tools)));
                 messages.addAll(history);
 
                 LlmResponse resp = client.call(messages, tools);
@@ -75,6 +76,16 @@ public class Agent {
             }
             throw e;
         }
+    }
+
+    /** 供 LLM 参考的可工具名代理，说明可以借助这些工具完成任务。 */
+    private static String toolGuidance(List<ToolDefinition> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return "";
+        }
+        String names = tools.stream().map(ToolDefinition::name)
+                .collect(Collectors.joining(", "));
+        return "\n\n可用工具：" + names + "。需要读取/写文件或执行命令时，调用对应工具；拿到结果后再作答。";
     }
 
     private static String abbreviate(String argsJson) {

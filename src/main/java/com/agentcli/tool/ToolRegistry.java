@@ -34,6 +34,11 @@ public class ToolRegistry {
         }
     }
 
+    /** 注册实现 Tool 接口的工具对象。 */
+    public void register(Tool tool) {
+        register(tool.definition(), tool::execute);
+    }
+
     /** 按名字查找定义，未注册返回 null。 */
     public ToolDefinition lookup(String name) {
         return definitions.get(name);

@@ -1,0 +1,65 @@
+package com.agentcli.tool;
+
+import com.agentcli.policy.PathGuard;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Map;
+
+/**
+ * write_file：写入/覆写项目根目录内的文件，写入前向用户请求 y/n 确认。
+ *
+ * 确认用注入的 BufferedReader 读取，便于测试时用 StringReader 模拟答复。
+ */
+public class WriteFileTool implements Tool {
+
+    private final PathGuard guard;
+    private final BufferedReader prompt;
+
+    public WriteFileTool(File root, BufferedReader prompt) {
+        this.guard = new PathGuard(root);
+        this.prompt = prompt;
+    }
+
+    @Override
+    public ToolDefinition definition() {
+        return new ToolDefinition(
+                "write_file",
+                "写入或覆写项目根目录内的文件。参数 path 为文件路径，content 为完整文本。" +
+                        "写入前会弹 y/n 确认，用户拒绝则不会写入。",
+                "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}");
+    }
+
+    @Override
+    public String execute(Map<String, Object> args) {
+        Object pathVal = args.get("path");
+        Object contentVal = args.get("content");
+        if (pathVal == null || contentVal == null) {
+            return "错误: 缺少参数 path 或 content";
+        }
+        try {
+            File file = guard.resolve(pathVal.toString());
+            String content = contentVal.toString();
+
+            System.out.print("⚠ 确认写入 " + file.getPath() + " ? (y/n) ");
+            String answer = prompt.readLine();
+            if (answer == null || !("y".equalsIgnoreCase(answer.trim()) || "yes".equalsIgnoreCase(answer.trim()))) {
+                return "用户拒绝了写入。请勿写入此文件。";
+            }
+
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) {
+                Files.createDirectories(parent.toPath());
+            }
+            Files.writeString(file.toPath(), content, StandardCharsets.UTF_8);
+            return "已写入 " + content.getBytes(StandardCharsets.UTF_8).length + " 字节到 " + file.getPath();
+        } catch (SecurityException e) {
+            return "拒绝: " + e.getMessage();
+        } catch (IOException e) {
+            return "错误: 写入失败 " + e.getMessage();
+        }
+    }
+}

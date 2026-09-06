@@ -4,15 +4,16 @@ import com.agentcli.agent.Agent;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.DeepSeekClient;
 import com.agentcli.llm.Message;
-import com.agentcli.tool.ToolDefinition;
+import com.agentcli.tool.ExecuteCommandTool;
+import com.agentcli.tool.ReadFileTool;
 import com.agentcli.tool.ToolRegistry;
+import com.agentcli.tool.WriteFileTool;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,7 +45,7 @@ public final class Main {
             "    ╚═╝┴  └─┘┴└─┴ ┴─┴┘  ╚═╝╚═╝╚═╝ ╩ ",
             "",
             "    Java Agent CLI · 可视化 ReAct + 录制回放即技能",
-            "    v" + VERSION + " · Day 5 ReAct 循环",
+            "    v" + VERSION + " · Day 6 内置工具+护栏",
             ""
     );
 
@@ -136,13 +137,14 @@ public final class Main {
         }
     }
 
-    /** 组装 Agent 并注册临时假工具（get_current_time），用于验证 ReAct 闭环。 */
-    private static Agent buildAgent(ChatClient llm) {
+    /** 组装 Agent 并注册内置工具（读写文件 + 执行命令），走路径/命令护栏。 */
+    private static Agent buildAgent(ChatClient llm) throws IOException {
+        File root = Env.rootPath().toFile();
+        BufferedReader prompt = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         ToolRegistry registry = new ToolRegistry();
-        registry.register(
-                new ToolDefinition("get_current_time", "获取当前日期与时间（东八区）",
-                        "{\"type\":\"object\",\"properties\":{}}"),
-                args -> LocalDateTime.now(ZoneId.of("Asia/Shanghai")).toString().replace('T', ' '));
+        registry.register(new ReadFileTool(root));
+        registry.register(new WriteFileTool(root, prompt));
+        registry.register(new ExecuteCommandTool(root));
         return new Agent(llm, registry);
     }
 

@@ -1,6 +1,6 @@
 # Day 6 · 三个内置工具 + 安全护栏
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成（真工具+护栏上线）　|　实际日期：2026-09-06　|　commit：________
 
 ## 目标
 
@@ -8,12 +8,12 @@ read_file / write_file / execute_command 三个真工具上线，路径和命令
 
 ## 任务清单
 
-- [ ] `tool/ReadFileTool.java`：相对路径解析到项目根，超长截断，二进制检测
-- [ ] `tool/WriteFileTool.java`：写入前 CLI 里 y/n 确认（今天先硬编码在工具里，Day 18 抽成策略）
-- [ ] `tool/ExecuteCommandTool.java`：`ProcessBuilder` + bash，超时 60s，输出截断
-- [ ] 新增 `policy/PathGuard.java`：canonical path 必须在项目根内，防 `../` 逃逸和符号链接
-- [ ] 新增 `policy/CommandGuard.java`：黑名单（rm -rf /、sudo、shutdown、mkfs、> /dev/sda 等）
-- [ ] 测试：PathGuard 逃逸用例 5 个、CommandGuard 黑名单用例 5 个
+- [x] `tool/ReadFileTool.java`：相对路径解析到项目根，超长截断，二进制检测
+- [x] `tool/WriteFileTool.java`：写入前 CLI 里 y/n 确认（注入 BufferedReader，可测试；Day 18 抽成策略）
+- [x] `tool/ExecuteCommandTool.java`：`ProcessBuilder` + bash，超时 60s，输出截断，stderr 合并
+- [x] 新增 `policy/PathGuard.java`：canonical path 必须在项目根内，防 `../` 逃逸和符号链接；额外拒绝绝对路径
+- [x] 新增 `policy/CommandGuard.java`：黑名单（rm -rf /、sudo、shutdown、mkfs、> /dev/sda 等）
+- [x] 测试：PathGuard 逃逸用例 5 个、CommandGuard 黑名单用例 5 个
 
 ## 涉及文件
 
