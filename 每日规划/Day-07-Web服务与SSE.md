@@ -1,6 +1,6 @@
 # Day 7 · Javalin --web + SSE 端点（差异点① 启动）
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成　|　实际日期：2026-09-07　|　commit：________
 
 ## 目标
 
@@ -8,13 +8,13 @@
 
 ## 任务清单
 
-- [ ] 新增 `web/EventEmitter.java` 接口：`emit(String type, Map<String,Object> payload)`
-- [ ] 新增 `web/ConsoleSink.java`（现有打印迁进去）+ `web/WebSink.java`（SSE 广播）
-- [ ] 新增 `web/WebServer.java`：Javalin 启动，监听 `AGENTCLI_WEB_PORT`（默认 8080）
-- [ ] 路由：`GET /api/health` 返回 `{"ok":true}`；`GET /api/events` SSE，客户端连上先发一条 hello 事件
-- [ ] `Main` 支持 `--web` 参数：带参数时 WebServer.start()，Agent 的 EventEmitter 挂上 WebSink
-- [ ] Agent 循环里埋钩子：turn_start / llm_call / tool_call / tool_result / turn_end 各 emit 一条
-- [ ] 测试：随机端口起 server，用 HttpURLConnection 连 `/api/health` 断言 200
+- [x] 新增 `web/EventEmitter.java` 接口：`emit(String type, Map<String,Object> payload)`
+- [x] 新增 `web/ConsoleSink.java`（现有打印迁进去，保留 ⚡ tool 行，零回归）+ `web/WebSink.java`（CopyOnWriteArrayList 广播，onClose 移除）
+- [x] 新增 `web/WebServer.java`：Javalin 启动（路由先注册后 start），监听 `AGENTCLI_WEB_PORT`（默认 8080，0=随机）
+- [x] 路由：`GET /api/health` 返回 `{"ok":true}`；`GET /api/events` SSE，连上先发 hello 事件（event: hello / data: connected）
+- [x] `Main` 支持 `--web` 参数：启动 WebServer，Agent 的 EventEmitter = ConsoleSink + WebSink 组合；启动失败降级 CLI 不崩
+- [x] Agent 循环里埋钩子：turn_start / llm_call / tool_call / tool_result / turn_end 各 emit 一条
+- [x] 测试：随机端口起 server，HttpURLConnection 连 `/api/health` 断言 200；SSE 端点断言 text/event-stream + hello 事件
 
 ## 涉及文件
 

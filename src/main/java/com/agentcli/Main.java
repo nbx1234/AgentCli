@@ -8,6 +8,10 @@ import com.agentcli.tool.ExecuteCommandTool;
 import com.agentcli.tool.ReadFileTool;
 import com.agentcli.tool.ToolRegistry;
 import com.agentcli.tool.WriteFileTool;
+import com.agentcli.web.ConsoleSink;
+import com.agentcli.web.EventEmitter;
+import com.agentcli.web.WebServer;
+import com.agentcli.web.WebSink;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -45,7 +49,7 @@ public final class Main {
             "    ╚═╝┴  └─┘┴└─┴ ┴─┴┘  ╚═╝╚═╝╚═╝ ╩ ",
             "",
             "    Java Agent CLI · 可视化 ReAct + 录制回放即技能",
-            "    v" + VERSION + " · Day 6 内置工具+护栏",
+            "    v" + VERSION + " · Day 7 Web+SSE",
             ""
     );
 
@@ -64,18 +68,43 @@ public final class Main {
         }
 
         // Day 1：预建 LLM 客户端；key 缺失时仍可启动，仅作提示，不阻塞。
+        // Day 7：`--web` 时启动本地 Web 服务，把 Agent 事件流打到浏览器。
         ChatClient llm = null;
         Agent agent = null;
+        WebServer[] webServerRef = new WebServer[1];
         try {
             llm = DeepSeekClient.fromEnv();
-            agent = buildAgent(llm);
+            EventEmitter emitter = new ConsoleSink();
+            if (containsFlag(args, "--web")) {
+                WebSink web = new WebSink();
+                EventEmitter console = emitter;
+                emitter = (t, p) -> {
+                    console.emit(t, p);
+                    web.emit(t, p);
+                };
+                try {
+                    WebServer server = new WebServer(webPort(), web);
+                    server.start();
+                    webServerRef[0] = server;
+                    System.out.println("[web] 事件流就绪 → http://127.0.0.1:" + server.getPort() + "/api/events");
+                } catch (Exception e) {
+                    // 端口被占等启动失败：降级为纯 CLI，不阻塞
+                    System.out.println("[warn] Web 启动失败，降级为 CLI 模式: " + e.getMessage());
+                }
+            }
+            agent = buildAgent(llm, emitter);
         } catch (IllegalStateException e) {
             System.out.println("[warn] " + e.getMessage());
             System.out.println("      请复制 .env.example 为 .env 并填入 DEEPSEEK_API_KEY 后再试。");
         }
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> System.out.println("\nBye.")));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (webServerRef[0] != null) {
+                webServerRef[0].stop();
+            }
+            System.out.println("\nBye.");
+        }));
 
         // Day 2：维护多轮对话历史（system prompt 每轮单独拼，不入 history）
         List<Message> history = new ArrayList<>();
@@ -138,14 +167,40 @@ public final class Main {
     }
 
     /** 组装 Agent 并注册内置工具（读写文件 + 执行命令），走路径/命令护栏。 */
-    private static Agent buildAgent(ChatClient llm) throws IOException {
+    private static Agent buildAgent(ChatClient llm, EventEmitter emitter) throws IOException {
         File root = Env.rootPath().toFile();
         BufferedReader prompt = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         ToolRegistry registry = new ToolRegistry();
         registry.register(new ReadFileTool(root));
         registry.register(new WriteFileTool(root, prompt));
         registry.register(new ExecuteCommandTool(root));
-        return new Agent(llm, registry);
+        return new Agent(llm, registry, emitter);
+    }
+
+    /** 命令行是否含某 flag。 */
+    private static boolean containsFlag(String[] args, String flag) {
+        for (String a : args) {
+            if (flag.equals(a)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Web 端口：上限 AGENTCLI_WEB_PORT，默认 8080；非法值回落默认。 */
+    private static int webPort() {
+        String v = Env.get("AGENTCLI_WEB_PORT");
+        if (v != null && !v.isBlank()) {
+            try {
+                int p = Integer.parseInt(v.trim());
+                if (p > 0 && p < 65536) {
+                    return p;
+                }
+            } catch (NumberFormatException ignored) {
+                // 回落默认
+            }
+        }
+        return 8080;
     }
 
     private static String summarize(String content) {

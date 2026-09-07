@@ -7,9 +7,12 @@ import com.agentcli.prompt.SystemPrompt;
 import com.agentcli.tool.ToolCall;
 import com.agentcli.tool.ToolDefinition;
 import com.agentcli.tool.ToolRegistry;
+import com.agentcli.web.EventEmitter;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -28,10 +31,16 @@ public class Agent {
 
     private final ChatClient client;
     private final ToolRegistry registry;
+    private final EventEmitter events;
 
     public Agent(ChatClient client, ToolRegistry registry) {
+        this(client, registry, EventEmitter.NOOP);
+    }
+
+    public Agent(ChatClient client, ToolRegistry registry, EventEmitter events) {
         this.client = client;
         this.registry = registry;
+        this.events = events;
     }
 
     /**
@@ -47,6 +56,7 @@ public class Agent {
 
         try {
             int iteration = 0;
+            events.emit("turn_start", payload("input", userInput));
             while (true) {
                 if (++iteration > MAX_ITERATIONS) {
                     throw new IllegalStateException("达到最大迭代次数(" + MAX_ITERATIONS + ")，任务未完成");
@@ -55,17 +65,20 @@ public class Agent {
                 messages.add(new Message("system", SystemPrompt.build() + toolGuidance(tools)));
                 messages.addAll(history);
 
+                events.emit("llm_call", payload("index", iteration));
                 LlmResponse resp = client.call(messages, tools);
                 if (!resp.hasToolCalls()) {
                     String answer = resp.content();
                     history.add(new Message("assistant", answer));
+                    events.emit("turn_end", payload("answer", answer));
                     return answer;
                 }
 
                 history.add(Message.assistantWithTools(resp.toolCalls()));
                 for (ToolCall tc : resp.toolCalls()) {
+                    events.emit("tool_call", payload("tool", tc.name(), "args", tc.argumentsJson(), "id", tc.id()));
                     String result = registry.execute(tc);
-                    System.out.println("⚡ tool: " + tc.name() + "(" + abbreviate(tc.argumentsJson()) + ")");
+                    events.emit("tool_result", payload("tool", tc.name(), "result", truncate(result)));
                     history.add(Message.toolResult(tc.id(), truncate(result)));
                 }
             }
@@ -88,11 +101,13 @@ public class Agent {
         return "\n\n可用工具：" + names + "。需要读取/写文件或执行命令时，调用对应工具；拿到结果后再作答。";
     }
 
-    private static String abbreviate(String argsJson) {
-        if (argsJson == null || argsJson.length() <= 100) {
-            return argsJson;
+    /** 构造事件 payload（保证键序，方便观看）。 */
+    private static Map<String, Object> payload(Object... kvs) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i < kvs.length; i += 2) {
+            m.put(String.valueOf(kvs[i]), kvs[i + 1]);
         }
-        return argsJson.substring(0, 100) + "…";
+        return m;
     }
 
     /** 避免 tool 结果过大撑爆上下文：>8KB 截断并注明。 */

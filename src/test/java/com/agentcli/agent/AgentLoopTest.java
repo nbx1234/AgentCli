@@ -6,10 +6,12 @@ import com.agentcli.llm.Message;
 import com.agentcli.tool.ToolCall;
 import com.agentcli.tool.ToolDefinition;
 import com.agentcli.tool.ToolRegistry;
+import com.agentcli.web.EventEmitter;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -114,5 +116,19 @@ class AgentLoopTest {
         assertThrows(IllegalStateException.class, () -> agent.run("go", history));
         // 失败后回滚，history 恢复到进入前（空）
         assertEquals(0, history.size());
+    }
+
+    @Test
+    void emitsEventHooksInOrder() throws Exception {
+        FakeClient fake = new FakeClient();
+        ToolRegistry reg = new ToolRegistry();
+        reg.register(new ToolDefinition("get_current_time", "时间", "{\"type\":\"object\"}"),
+                args -> "2026-09-05 14:30:00");
+        List<String> events = new ArrayList<>();
+        Agent agent = new Agent(fake, reg, (type, payload) -> events.add(type));
+
+        agent.run("现在几点", new ArrayList<>());
+
+        assertEquals(List.of("turn_start", "llm_call", "tool_call", "tool_result", "llm_call", "turn_end"), events);
     }
 }
