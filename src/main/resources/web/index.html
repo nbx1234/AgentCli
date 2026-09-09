@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentCli · ReAct Timeline</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171a21;
+      --border: #2a2f3a;
+      --text: #e6e9ef;
+      --muted: #8b93a3;
+      --blue: #3b82f6;
+      --orange: #f59e0b;
+      --green: #22c55e;
+      --grey: #6b7280;
+      --cyan: #22d3ee;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      position: sticky; top: 0;
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    header .title { font-weight: 700; }
+    #dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--grey);
+      display: inline-block;
+    }
+    #dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    #dot.off { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+    #count {
+      background: var(--border); color: var(--text);
+      border-radius: 999px; padding: 1px 8px; font-size: 12px;
+    }
+    button {
+      margin-left: auto;
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 12px; cursor: pointer; font-family: inherit;
+    }
+    button:hover { color: var(--text); border-color: var(--muted); }
+    main { padding: 12px 16px 40px; max-width: 900px; margin: 0 auto; }
+    .card {
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--grey);
+      background: var(--panel);
+      border-radius: 6px;
+      margin: 8px 0; padding: 8px 12px;
+      word-break: break-word;
+    }
+    .card .head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+    .card .tag {
+      font-size: 11px; font-weight: 700; color: #fff;
+      border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+    }
+    .card .meta { color: var(--muted); font-size: 11px; }
+    .card .body { margin-top: 6px; font-size: 13px; color: var(--text); }
+    .card .body pre {
+      margin: 6px 0 0; padding: 6px 8px; background: #0b0d12;
+      border-radius: 4px; overflow-x: auto; font-family: inherit; font-size: 12px;
+    }
+    /* type 配色 */
+    .t-turn_start   .tag { background: var(--blue); }
+    .t-tool_call    .tag { background: var(--orange); }
+    .t-tool_result  .tag { background: var(--grey); }
+    .t-turn_end     .tag { background: var(--green); }
+    .t-llm_call     .tag { background: var(--cyan); }
+    .t-hello        .tag { background: var(--grey); }
+    /* tool_result 默认折叠 */
+    .collapsible .body { display: none; }
+    .collapsible.open .body { display: block; }
+    .collapsible .head { cursor: pointer; }
+    .card small { color: var(--muted); }
+    #empty { color: var(--muted); text-align: center; margin-top: 60px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="title">AgentCli</span>
+    <span id="dot"></span>
+    <span id="status">connecting…</span>
+    <span id="count">0</span>
+    <button id="clear-btn">clear</button>
+  </header>
+  <main id="timeline">
+    <p id="empty">等待事件…</p>
+  </main>
+
+  <script>
+    const timeline = document.getElementById('timeline');
+    const dot = document.getElementById('dot');
+    const statusEl = document.getElementById('status');
+    const countEl = document.getElementById('count');
+    const clearBtn = document.getElementById('clear-btn');
+    let count = 0;
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+    function time() {
+      const d = new Date();
+      return d.toTimeString().slice(0, 8);
+    }
+    function addCard(type, title, bodyHtml, collapsible) {
+      const empty = document.getElementById('empty');
+      if (empty) empty.remove();
+      const card = document.createElement('div');
+      card.className = 'card t-' + type + (collapsible ? ' collapsible' : '');
+      const head = document.createElement('div');
+      head.className = 'head';
+      head.innerHTML = '<span class="tag">' + esc(type) + '</span>'
+        + '<span class="meta">' + time() + '</span>'
+        + '<span>' + esc(title) + '</span>';
+      card.appendChild(head);
+      if (bodyHtml) {
+        const body = document.createElement('div');
+        body.className = 'body';
+        body.innerHTML = bodyHtml;
+        card.appendChild(body);
+      }
+      if (collapsible) {
+        head.addEventListener('click', () => card.classList.toggle('open'));
+      }
+      timeline.appendChild(card);
+      // 只保留最近 200 条
+      while (timeline.children.length > 200) timeline.removeChild(timeline.firstChild);
+      timeline.scrollTop = timeline.scrollHeight;
+    }
+
+    function setConnected(ok) {
+      dot.className = ok ? 'on' : 'off';
+      statusEl.textContent = ok ? 'connected' : 'disconnected';
+    }
+
+    const es = new EventSource('/api/events');
+    es.onopen = () => setConnected(true);
+    es.onerror = () => setConnected(false); // 断线；EventSource 自动重连，不手动 retry
+
+    es.addEventListener('hello', e => {
+      count++; countEl.textContent = count;
+      addCard('hello', '已连接事件流', '<small>' + esc(e.data) + '</small>');
+    });
+    es.addEventListener('turn_start', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      addCard('turn_start', 'turn start', '<pre>' + esc(p.input) + '</pre>');
+    });
+    es.addEventListener('llm_call', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      addCard('llm_call', 'LLM 调用 #' + (p.index || '?'));
+    });
+    es.addEventListener('tool_call', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      addCard('tool_call', '调用 ' + esc(p.tool),
+        '<pre>args: ' + esc(p.args || '{}') + '</pre>');
+    });
+    es.addEventListener('tool_result', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      addCard('tool_result', '结果 ' + esc(p.tool), '<pre>' + esc(p.result || '') + '</pre>', true);
+    });
+    es.addEventListener('turn_end', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      addCard('turn_end', '答复', '<pre>' + esc(p.answer) + '</pre>');
+    });
+    // 兜底：收到未注册的事件时也尝试渲染
+    es.onmessage = e => {
+      if (!e.data) return;
+      try { const p = JSON.parse(e.data); addCard('unknown', p.type || 'event', '<pre>' + esc(e.data) + '</pre>'); }
+      catch (_) {}
+    };
+
+    clearBtn.addEventListener('click', () => {
+      timeline.innerHTML = '';
+      count = 0; countEl.textContent = '0';
+      timeline.innerHTML = '<p id="empty">等待事件…</p>';
+    });
+  </script>
+</body>
+</html>

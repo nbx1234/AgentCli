@@ -1,6 +1,6 @@
 # Day 8 · 前端单页 + 事件时间线
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成　|　实际日期：2026-09-09　|　commit：________
 
 ## 目标
 
@@ -8,13 +8,12 @@
 
 ## 任务清单
 
-- [ ] `src/main/resources/web/index.html`：单文件页面（内联 CSS/JS）
-- [ ] EventSource 连 `/api/events`，按 type 渲染卡片：
-  - `turn_start` 蓝色、`tool_call` 橙色（显示工具名 + 参数摘要）、`tool_result` 灰色（可折叠）、`turn_end` 绿色
-- [ ] 顶部状态栏：连接状态圆点（绿=已连，红=断开，自动重连 EventSource 自带）
-- [ ] "清屏"按钮 + 事件计数徽章
-- [ ] WebServer 加静态资源：`cfg.staticFiles.add("/web", Location.CLASSPATH)`
-- [ ] 测试：手动验收为主；curl 静态页断言 200 + 含关键字
+- [x] `src/main/resources/web/index.html`：单文件页面（内联 CSS/JS，深色主题，零框架）
+- [x] EventSource 连 `/api/events`，按 type 渲染卡片（turn_start 蓝 / tool_call 橙 + 参数摘要 / tool_result 灰可折叠 / turn_end 绿 / llm_call 青）
+- [x] 顶部状态栏：连接圆点（绿=连上，红=断开），断线自动重连（EventSource 内建，不手写重试）
+- [x] "clear"按钮 + 事件计数徽章；DOM 超 200 条自动裁剪
+- [x] WebServer 静态资源：托管 classpath `/web` 到站点根 `/`，根路径自动命中 index.html
+- [x] 测试：curl 静态页断言 200 + 含关键字（AgentCli / EventSource）
 
 ## 涉及文件
 

@@ -49,7 +49,7 @@ public final class Main {
             "    ╚═╝┴  └─┘┴└─┴ ┴─┴┘  ╚═╝╚═╝╚═╝ ╩ ",
             "",
             "    Java Agent CLI · 可视化 ReAct + 录制回放即技能",
-            "    v" + VERSION + " · Day 7 Web+SSE",
+            "    v" + VERSION + " · Day 8 前端时间线",
             ""
     );
 

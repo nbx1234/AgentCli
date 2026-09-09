@@ -59,4 +59,25 @@ class WebServerTest {
             server.stop();
         }
     }
+
+    @Test
+    void servesIndexPage() throws Exception {
+        WebSink sink = new WebSink();
+        WebServer server = new WebServer(0, sink);
+        try {
+            server.start();
+            int port = server.getPort();
+
+            HttpURLConnection conn = (HttpURLConnection) URI.create(
+                    "http://127.0.0.1:" + port + "/").toURL().openConnection();
+            assertEquals(200, conn.getResponseCode());
+            String body = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))
+                    .lines().reduce("", String::concat);
+            assertTrue(body.contains("AgentCli"));
+            assertTrue(body.contains("EventSource"));
+            conn.disconnect();
+        } finally {
+            server.stop();
+        }
+    }
 }
