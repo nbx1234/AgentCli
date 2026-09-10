@@ -199,7 +199,9 @@ public class DeepSeekClient implements ChatClient {
         }
         JsonNode contentNode = message.get("content");
         String content = (contentNode == null || contentNode.isNull()) ? "" : contentNode.asText();
-        return new LlmResponse(content, parseToolCalls(message));
+        JsonNode reasoningNode = message.get("reasoning_content");
+        String reasoning = (reasoningNode == null || reasoningNode.isNull()) ? null : reasoningNode.asText();
+        return new LlmResponse(content, parseToolCalls(message), reasoning);
     }
 
     private static List<ToolCall> parseToolCalls(JsonNode message) {

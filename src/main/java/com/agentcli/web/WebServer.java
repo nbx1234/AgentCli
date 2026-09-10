@@ -3,6 +3,7 @@ package com.agentcli.web;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,6 +34,7 @@ public class WebServer {
             });
         });
         app.get("/api/health", ctx -> ctx.json(Map.of("ok", true)));
+        app.get("/api/dag", ctx -> ctx.json(Map.of("nodes", List.of(), "edges", List.of())));
         app.sse("/api/events", client -> {
             sink.addClient(client);
             client.sendEvent("hello", "connected");

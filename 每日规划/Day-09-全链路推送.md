@@ -1,6 +1,6 @@
 # Day 9 · ReAct 全链路推送 + reasoning 预览
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成　|　实际日期：2026-09-10　|　commit：________
 
 ## 目标
 
@@ -8,12 +8,13 @@
 
 ## 任务清单
 
-- [ ] 事件 payload 标准化：`{type, ts, iteration, tool, args, result, durationMs, preview}` 统一 schema
-- [ ] Agent 埋点补全：llm 开始/结束（含耗时）、tool 执行耗时、iteration 编号
-- [ ] `callStream` 的 delta 聚合：每 N 个字符或每 500ms emit 一条 `answer_delta`（带已累积文本），`turn_end` 带完整回答
-- [ ] 新增 `GET /api/dag` 占位：plan 模式之前先返回 `{"nodes":[],"edges":[]}`（Day 11 填真数据）
-- [ ] 前端：answer_delta 增量渲染成"正在回答…"气泡，turn_end 替换为完整 Markdown 纯文本
-- [ ] 测试：事件 schema 校验（type 必填、ts 可解析）
+- [x] 事件 payload 标准化：新增 `web/EventPayload` 构造器，统一 `{type, ts, ...}`；ts 用 currentTimeMillis
+- [x] Agent 埋点补全：`llm_start`/`llm_end`（含 durationMs，nanoTime 差值）、`tool_call`/`tool_result`（tool_result 含 exec durationMs）、iteration 编号
+- [x] reasoning 透传：LlmResponse 加 reasoning 字段，DeepSeekClient 解析 `reasoning_content`，放进 `llm_end.preview`
+- [x] `answer_delta`：最终回答按片切分聚合后逐条 emit（带累积 text），前端打字式渲染；`turn_end` 带完整 answer
+- [x] 新增 `GET /api/dag` 占位：返回 `{"nodes":[],"edges":[]}`（Day 11 填真数据）
+- [x] 前端：answer_delta 增量"You正在回答"气泡，llm_start/llm_end（含耗时/推理 gray 斜体）渲染
+- [x] 测试：`EventSchemaTest`（所有事件 type 必填 + ts 可解析、llm_end/tool_result 含 durationMs、/api/dag 合法空数组）
 
 ## 涉及文件
 

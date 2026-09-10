@@ -76,8 +76,9 @@
     .t-tool_call    .tag { background: var(--orange); }
     .t-tool_result  .tag { background: var(--grey); }
     .t-turn_end     .tag { background: var(--green); }
-    .t-llm_call     .tag { background: var(--cyan); }
+    .t-llm_start .tag, .t-llm_end .tag, .t-llm_call .tag { background: var(--cyan); }
     .t-hello        .tag { background: var(--grey); }
+    pre.reasoning { color: var(--muted); font-style: italic; }
     /* tool_result 默认折叠 */
     .collapsible .body { display: none; }
     .collapsible.open .body { display: block; }
@@ -159,25 +160,52 @@
       const p = JSON.parse(e.data);
       addCard('turn_start', 'turn start', '<pre>' + esc(p.input) + '</pre>');
     });
-    es.addEventListener('llm_call', e => {
+    function renderDuration(p) { return p.durationMs + 'ms'; }
+    es.addEventListener('llm_start', e => {
       count++; countEl.textContent = count;
       const p = JSON.parse(e.data);
-      addCard('llm_call', 'LLM 调用 #' + (p.index || '?'));
+      addCard('llm_start', 'LLM 思考 #' + (p.iteration || '?'));
+    });
+    es.addEventListener('llm_end', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      const head = 'LLM 返回 #' + (p.iteration || '?') + ' · ' + renderDuration({durationMs: p.durationMs});
+      addCard('llm_end', head, p.preview ? '<pre class="reasoning">' + esc(p.preview) + '</pre>' : null, true);
     });
     es.addEventListener('tool_call', e => {
       count++; countEl.textContent = count;
       const p = JSON.parse(e.data);
       addCard('tool_call', '调用 ' + esc(p.tool),
-        '<pre>args: ' + esc(p.args || '{}') + '</pre>');
+        '<pre>' + esc(p.preview || p.args) + '</pre>');
     });
     es.addEventListener('tool_result', e => {
       count++; countEl.textContent = count;
       const p = JSON.parse(e.data);
-      addCard('tool_result', '结果 ' + esc(p.tool), '<pre>' + esc(p.result || '') + '</pre>', true);
+      const head = '结果 ' + esc(p.tool) + ' · ' + renderDuration(p);
+      addCard('tool_result', head, '<pre>' + esc(p.result || '') + '</pre>', true);
+    });
+    // 回答逐字出现：累积到一个"正在回答"卡片
+    let typingCard = null;
+    es.addEventListener('answer_delta', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      if (!typingCard) {
+        const empty = document.getElementById('empty');
+        if (empty) empty.remove();
+        typingCard = document.createElement('div');
+        typingCard.className = 'card t-turn_end typing';
+        typingCard.innerHTML = '<div class="head"><span class="tag">turn_end</span>'
+          + '<span class="meta">' + time() + '</span><span>回答中…</span></div>'
+          + '<div class="body"><pre></pre></div>';
+        timeline.appendChild(typingCard);
+      }
+      typingCard.querySelector('pre').textContent = p.text;
+      timeline.scrollTop = timeline.scrollHeight;
     });
     es.addEventListener('turn_end', e => {
       count++; countEl.textContent = count;
       const p = JSON.parse(e.data);
+      if (typingCard) { typingCard.remove(); typingCard = null; }
       addCard('turn_end', '答复', '<pre>' + esc(p.answer) + '</pre>');
     });
     // 兜底：收到未注册的事件时也尝试渲染

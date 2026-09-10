@@ -129,6 +129,9 @@ class AgentLoopTest {
 
         agent.run("现在几点", new ArrayList<>());
 
-        assertEquals(List.of("turn_start", "llm_call", "tool_call", "tool_result", "llm_call", "turn_end"), events);
+        // 非 delta 事件按序；answer_delta 作为增量单独校验存在即可（数量依赖内容长度）
+        List<String> core = events.stream().filter(t -> !t.startsWith("answer_delta")).toList();
+        assertEquals(List.of("turn_start", "llm_start", "llm_end", "tool_call", "tool_result", "llm_start", "llm_end", "turn_end"), core);
+        assertTrue(events.stream().anyMatch(t -> t.startsWith("answer_delta")));
     }
 }
