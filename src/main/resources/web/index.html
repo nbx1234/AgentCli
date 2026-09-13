@@ -51,7 +51,20 @@
       padding: 4px 12px; cursor: pointer; font-family: inherit;
     }
     button:hover { color: var(--text); border-color: var(--muted); }
-    main { padding: 12px 16px 40px; max-width: 900px; margin: 0 auto; }
+    main { padding: 12px 16px 40px; max-width: 980px; margin: 0 auto; }
+    /* Day 12：DAG 面板 */
+    #dag-panel {
+      border: 1px solid var(--border); border-radius: 6px;
+      background: var(--panel); margin: 8px 0 16px; overflow-x: auto;
+    }
+    #dag-panel[hidden] { display: none; }
+    #dag-panel .hd {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    #dag-panel .hd .hint { color: var(--muted); font-size: 11px; }
+    #dag-panel svg { display: block; min-width: 460px; }
+    #dag-panel text { fill: var(--text); font-size: 11px; font-family: inherit; }
     .card {
       border: 1px solid var(--border);
       border-left: 3px solid var(--grey);
@@ -93,9 +106,14 @@
     <span id="dot"></span>
     <span id="status">connecting…</span>
     <span id="count">0</span>
+    <button id="dag-btn">dag</button>
     <button id="clear-btn">clear</button>
   </header>
   <main id="timeline">
+    <div id="dag-panel" hidden>
+      <div class="hd"><span>计划 DAG</span><span class="hint">/api/dag</span></div>
+      <svg id="dag"></svg>
+    </div>
     <p id="empty">等待事件…</p>
   </main>
 
@@ -146,6 +164,65 @@
       dot.className = ok ? 'on' : 'off';
       statusEl.textContent = ok ? 'connected' : 'disconnected';
     }
+
+    // ---- Day 12：DAG（分层布局，SVG）----
+    const dagPanel = document.getElementById('dag-panel');
+    const dagSvg = document.getElementById('dag');
+    const dagBtn = document.getElementById('dag-btn');
+    function dagDepth(nodes, edges) {
+      const adj = {}; nodes.forEach(n => adj[n.id] = []);
+      edges.forEach(e => adj[e.from].push(e.to));
+      const depth = {}; nodes.forEach(n => depth[n.id] = 0);
+      for (const n of nodes) {
+        for (const to of adj[n.id]) depth[to] = Math.max(depth[to], depth[n.id] + 1);
+      }
+      return depth;
+    }
+    function statusColor(s) {
+      return ({PENDING:'#6b7280', RUNNING:'#3b82f6', DONE:'#22c55e', FAILED:'#ef4444', SKIPPED:'#6b7280'})[s] || '#6b7280';
+    }
+    function loadDag() {
+      fetch('/api/dag').then(r => r.json()).then(data => {
+        const nodes = data.nodes || [], edges = data.edges || [];
+        if (!nodes.length) { dagPanel.hidden = true; return; }
+        dagPanel.hidden = false;
+        const depth = dagDepth(nodes, edges);
+        // 按深度分层：每层节点最多时决定层高
+        const byDepth = {};
+        nodes.forEach(n => (byDepth[depth[n.id]] = byDepth[depth[n.id]] || []).push(n.id));
+        const NW = 150, NH = 34, GX = 50, GY = 18;
+        const pos = {};
+        Object.keys(byDepth).forEach(d => {
+          byDepth[d].forEach((id, i) => pos[id] = {
+            x: +d * (NW + GX),
+            y: i * (NH + GY)
+          });
+        });
+        const W = nodes.reduce((m, n) => Math.max(m, pos[n.id].x + NW), 0) + 20;
+        const H = nodes.reduce((m, n) => Math.max(m, pos[n.id].y + NH), 0) + 20;
+        const posById = id => {
+          const p = pos[id]; return { cx: p.x + NW / 2, cy: p.y + NH / 2 };
+        };
+        const sx = x => Math.round(100 + x), sy = y => Math.round(20 + y);
+        let svg = `<defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8b93a3"/></marker></defs>`;
+        edges.forEach(e => {
+          const b = posById(e.from), t = posById(e.to);
+          svg += `<line x1="${sx(b.cx)}" y1="${sy(b.cy)}" x2="${sx(t.cx)}" y2="${sy(t.cy)}" stroke="#8b93a3" stroke-width="1.5" marker-end="url(#arr)"/>`;
+        });
+        nodes.forEach(n => {
+          const c = statusColor(n.status);
+          const p = pos[n.id];
+          svg += `<rect x="${sx(p.x)}" y="${sy(p.y)}" width="${NW}" height="${NH}" rx="6" fill="#1b1f29" stroke="${c}" stroke-width="1.5"/>`
+            + `<text x="${sx(p.x) + 8}" y="${sy(p.y) + 15}">${esc(n.id)} · ${esc(n.title)}</text>`
+            + `<text x="${sx(p.x) + 8}" y="${sy(p.y) + NH - 6}" fill="${c}" font-size="9">${esc(n.status)}</text>`;
+        });
+        dagSvg.setAttribute('width', (100 + W + 20));
+        dagSvg.setAttribute('height', (20 + H + 20));
+        dagSvg.innerHTML = svg;
+      }).catch(() => dagPanel.hidden = true);
+    }
+    dagBtn.addEventListener('click', loadDag);
+    loadDag(); // 首屏即拉取当前计划
 
     const es = new EventSource('/api/events');
     es.onopen = () => setConnected(true);
