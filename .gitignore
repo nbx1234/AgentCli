@@ -23,3 +23,6 @@ Thumbs.db
 # 运行时产物
 .traces/
 agentcli.log
+# 覆盖率探针产物（有时被 JVM/工具写出到项目根）
+default.profraw
+*.profraw
