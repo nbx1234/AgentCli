@@ -1,6 +1,6 @@
 # Day 14 · /replay 回放
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成　|　实际日期：09-15　|　commit：见下方记录
 
 ## 目标
 
@@ -8,12 +8,12 @@
 
 ## 任务清单
 
-- [ ] 新增 `trace/TraceReplay.java`：读 jsonl → List<Event>，校验 meta 首行
-- [ ] `/replay <id>` dry-run：按时间线打印每步（工具、参数、截断结果），结尾标注 `[dry-run] 未执行任何工具`
-- [ ] `/replay <id> --apply`：逐步真实执行 tool_call，每步前显示参数并 y/n 确认（默认 n）；工具结果与原 trace 并排显示"本次结果 vs 录制时结果"
-- [ ] apply 过程产生新的 EventEmitter 事件（Web 时间线同步可见）
-- [ ] apply 结束把 replay 过程本身也录成一条新 trace（标记 type=replay, source=<原id>）
-- [ ] 测试：replay 解析；dry-run 不触碰文件系统的断言（用临时目录 + 计数）
+- [x] 新增 `trace/TraceReplay.java`：读 jsonl → List<Event>，校验 meta 首行
+- [x] `/replay <id>` dry-run：按时间线打印每步（工具、参数、截断结果），结尾标注 `[dry-run] 未执行任何工具`
+- [x] `/replay <id> --apply`：逐步真实执行 tool_call，每步前显示参数并 y/n 确认（默认 n）；工具结果与原 trace 并排显示"本次结果 vs 录制时结果"
+- [x] apply 过程产生新的 EventEmitter 事件（Web 时间线同步可见）
+- [x] apply 结束把 replay 过程本身也录成一条新 trace（标记 type=replay, source=<原id>）
+- [x] 测试：replay 解析；dry-run 不触碰文件系统的断言（用临时目录 + 计数）
 
 ## 涉及文件
 

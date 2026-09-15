@@ -41,13 +41,16 @@ public final class TraceRecorder implements EventEmitter {
     private final BufferedWriter writer;
     private final String model;
     private final String version;
+    /** 非空表示这是一条 replay 录制：首行 meta 应标记 type=replay + source=<原id>。 */
+    private final String replaySource;
     private boolean metaWritten = false;
 
-    private TraceRecorder(Path file, BufferedWriter writer, String model, String version) {
+    private TraceRecorder(Path file, BufferedWriter writer, String model, String version, String replaySource) {
         this.file = file;
         this.writer = writer;
         this.model = model;
         this.version = version;
+        this.replaySource = replaySource;
     }
 
     /**
@@ -62,10 +65,20 @@ public final class TraceRecorder implements EventEmitter {
 
     /** 打开于指定目录（测试/工具注入用）。 */
     static TraceRecorder openIn(Path dir, String model, String version) throws IOException {
+        return openIn(dir, model, version, null);
+    }
+
+    /** 打开一条 replay 录制：meta 记 type=replay + source=<原 trace id>。 */
+    public static TraceRecorder openReplay(String sourceId, String model, String version) throws IOException {
+        return openIn(traceDir(), model, version, sourceId);
+    }
+
+    private static TraceRecorder openIn(Path dir, String model, String version, String replaySource)
+            throws IOException {
         Files.createDirectories(dir);
         Path file = dir.resolve(newTraceName(dir));
         BufferedWriter w = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
-        return new TraceRecorder(file, w, model, version);
+        return new TraceRecorder(file, w, model, version, replaySource);
     }
 
     public Path file() {
@@ -92,11 +105,16 @@ public final class TraceRecorder implements EventEmitter {
 
     private void writeMeta(String userInput) throws IOException {
         Map<String, Object> meta = new java.util.LinkedHashMap<>();
-        meta.put("type", "meta");
         meta.put("ts", System.currentTimeMillis());
-        meta.put("user", truncate(userInput));
         meta.put("model", model);
         meta.put("version", version);
+        if (replaySource != null) {
+            meta.put("type", "replay");
+            meta.put("source", replaySource);
+        } else {
+            meta.put("type", "meta");
+            meta.put("user", truncate(userInput));
+        }
         writeJson(MAPPER.writeValueAsString(meta));
     }
 

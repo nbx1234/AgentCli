@@ -85,7 +85,8 @@ public class Agent {
                 for (ToolCall tc : resp.toolCalls()) {
                     String preview = abbreviate(tc.argumentsJson());
                     events.emit("tool_call", EventPayload.create("tool_call").iteration(iteration)
-                            .put("tool", tc.name()).put("id", tc.id()).put("preview", preview).build());
+                            .put("tool", tc.name()).put("id", tc.id())
+                            .put("args", tc.argumentsJson()).put("preview", preview).build());
                     long execStart = System.nanoTime();
                     String result = registry.execute(tc);
                     long execMs = (System.nanoTime() - execStart) / 1_000_000;

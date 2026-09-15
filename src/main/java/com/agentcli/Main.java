@@ -15,6 +15,7 @@ import com.agentcli.tool.ReadFileTool;
 import com.agentcli.tool.ToolRegistry;
 import com.agentcli.tool.WriteFileTool;
 import com.agentcli.trace.TraceRecorder;
+import com.agentcli.trace.TraceReplay;
 import com.agentcli.web.ConsoleSink;
 import com.agentcli.web.EventEmitter;
 import com.agentcli.web.WebServer;
@@ -25,6 +26,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -192,6 +195,11 @@ public final class Main {
                 runTraceCommand(input);
                 continue;
             }
+            // Day 14：/replay 回放一条 trace；--apply 才真执行工具
+            if (input.startsWith("/replay")) {
+                runReplayFlow(reader, registry, emitterRef[0], input);
+                continue;
+            }
             // Day 10-12：/plan 生成 → 审阅 → 执行
             if (input.startsWith("/plan")) {
                 if (llm == null || subAgent == null) {
@@ -357,6 +365,139 @@ public final class Main {
         System.out.println("[trace] 用法: /trace list | /trace show <id>");
     }
 
+    /**
+     * Day 14：/replay <id> 回放。
+     * 默认 dry-run 只展示；带 --apply 时逐步 y/n 确认后真实执行（回放同样过工具护栏，不是特权通道）。
+     */
+    private static void runReplayFlow(BufferedReader reader, ToolRegistry registry, EventEmitter emitter,
+                                     String input) throws IOException {
+        String tail = input.substring("/replay".length()).trim();
+        boolean apply = false;
+        if (tail.endsWith("--apply")) {
+            apply = true;
+            tail = tail.substring(0, tail.length() - "--apply".length()).trim();
+        }
+        if (tail.isEmpty()) {
+            System.out.println("[replay] 用法: /replay <id>（dry-run）| /replay <id> --apply（真实执行，逐步确认）");
+            System.out.println("[replay] 用 /trace list 查看可回放的 id。");
+            return;
+        }
+        Path file = TraceRecorder.traceDir().resolve(tail.endsWith(".jsonl") ? tail : tail + ".jsonl");
+        if (!Files.isRegularFile(file)) {
+            System.out.println("[replay] 未找到: " + tail);
+            return;
+        }
+        TraceReplay replay;
+        try {
+            replay = TraceReplay.load(file);
+        } catch (IOException e) {
+            System.out.println("[replay] 读取失败: " + e.getMessage());
+            return;
+        }
+        System.out.println("▶ 回放 trace " + tail + " (" + replay.metaLine() + ")");
+        if (!apply) {
+            dryRun(replay);
+            return;
+        }
+        apply(reader, registry, emitter, replay);
+    }
+
+    /** 重演但绝不触碰工具：逐工具打印，末尾打 dry-run 标注。 */
+    private static void dryRun(TraceReplay replay) {
+        int idx = 0;
+        for (TraceReplay.Event ev : replay.events()) {
+            switch (ev.type()) {
+                case "tool_call" -> {
+                    idx++;
+                    System.out.printf("  %d. tool_call %s %s%n",
+                            idx, ev.str("tool"), TraceReplay.argsOf(ev));
+                }
+                case "turn_end" -> System.out.printf("  turn_end \"%s\"%n", simplify(ev.str("answer")));
+                default -> { /* meta / llm / tool_result 等不参与 dry-run 时间线 */ }
+            }
+        }
+        System.out.println("[dry-run] 未执行任何工具。加 --apply 真实执行（逐步确认）");
+    }
+
+    /** 逐步真实执行：每步 y/n（默认 n）；结果与原 trace 并排展示。事件也可视化到 Web 时间线。 */
+    private static void apply(BufferedReader reader, ToolRegistry registry, EventEmitter emitter,
+                              TraceReplay replay) throws IOException {
+        if (registry == null) {
+            System.out.println("[replay] --apply 需要已加载工具环境，当前不可用。");
+            return;
+        }
+        TraceRecorder recording = null;
+        try {
+            recording = TraceRecorder.openReplay(replay.file().getFileName().toString(), "deepseek-chat", VERSION);
+        } catch (IOException e) {
+            System.out.println("[warn] replay 录制目录不可用，本次回放不落盘: " + e.getMessage());
+        }
+        int idx = 0;
+        for (TraceReplay.Event ev : replay.events()) {
+            if (!"tool_call".equals(ev.type())) {
+                continue;
+            }
+            idx++;
+            String tool = ev.str("tool");
+            String args = TraceReplay.argsOf(ev);
+            System.out.printf("  %d. tool_call %s %s%n", idx, tool, args);
+            System.out.print("     执行? (y/N) > ");
+            String line = reader.readLine();
+            boolean yes = line != null && ("y".equalsIgnoreCase(line.trim()) || "yes".equalsIgnoreCase(line.trim()));
+            if (!yes) {
+                System.out.println("     已跳过 " + tool);
+                continue;
+            }
+            traceCall(ev, tool, args, registry, emitter, recording);
+        }
+        if (recording != null) {
+            recording.close();
+            System.out.println("[replay] 本次回放已记为新 trace: " + recording.file().getFileName());
+        }
+        System.out.println("[replay] 回放结束。");
+    }
+
+    private static void traceCall(TraceReplay.Event ev, String tool, String args, ToolRegistry registry,
+                                  EventEmitter emitter, TraceRecorder recording) {
+        // 回放事件也广播给 Web/主会话，保持时间线一致
+        Map<String, Object> callPayload = Map.of(
+                "type", "tool_call", "tool", tool, "id", ev.str("id"),
+                "args", args, "preview", simplify(args), "replay", true);
+        emitter.emit("tool_call", callPayload);
+        if (recording != null) {
+            recording.emit("tool_call", callPayload);
+        }
+        String result;
+        try {
+            result = registry.execute(replayToolCall(ev, tool, args));
+        } catch (Exception e) {
+            result = "执行异常: " + e.getMessage();
+        }
+        String recorded = ev.str("result");
+        Map<String, Object> resPayload = Map.of(
+                "type", "tool_result", "tool", tool,
+                "result", result, "preview", simplify(result), "replay", true);
+        emitter.emit("tool_result", resPayload);
+        if (recording != null) {
+            recording.emit("tool_result", resPayload);
+        }
+        System.out.println("     本次结果: " + simplify(result));
+        System.out.println("     录制结果: " + (recorded.isEmpty() ? "(无)" : simplify(recorded)));
+    }
+
+    private static com.agentcli.tool.ToolCall replayToolCall(TraceReplay.Event ev, String tool, String args) {
+        return new com.agentcli.tool.ToolCall(ev.str("id"), tool, args);
+    }
+
+    /** 单行展示摘要（含工具结果，避免把整个文件内容刷屏）。 */
+    private static String simplify(String s) {
+        if (s == null) {
+            return "";
+        }
+        String one = s.replace('\n', ' ').trim();
+        return one.length() <= 100 ? one : one.substring(0, 100) + "…";
+    }
+
     /** 命令行是否含某 flag。 */
     private static boolean containsFlag(String[] args, String flag) {
         for (String a : args) {
@@ -397,6 +538,7 @@ public final class Main {
         tips.put("/history", "查看历史（条数与最近 3 条）");
         tips.put("/plan", "生成任务计划 → 审阅后执行（r/i/c）");
         tips.put("/trace", "查看录制：list / show <id>");
+        tips.put("/replay", "回放 trace：/replay <id>（dry-run）；--apply 真实执行");
         tips.forEach((cmd, desc) -> System.out.printf("  %-10s · %s%n", cmd, desc));
         System.out.println();
     }
