@@ -10,6 +10,7 @@ import com.agentcli.plan.PlanExecutor;
 import com.agentcli.plan.PlanReviewParser;
 import com.agentcli.plan.Planner;
 import com.agentcli.plan.Task;
+import com.agentcli.skill.SkillRegistry;
 import com.agentcli.tool.ExecuteCommandTool;
 import com.agentcli.tool.ReadFileTool;
 import com.agentcli.tool.ToolRegistry;
@@ -198,6 +199,11 @@ public final class Main {
             // Day 14：/replay 回放一条 trace；--apply 才真执行工具
             if (input.startsWith("/replay")) {
                 runReplayFlow(reader, registry, emitterRef[0], input);
+                continue;
+            }
+            // Day 15：/skill 录制即技能：save / list / show / run
+            if (input.startsWith("/skill")) {
+                runSkillFlow(reader, llm, agent, emitterRef[0], history, input);
                 continue;
             }
             // Day 10-12：/plan 生成 → 审阅 → 执行
@@ -498,6 +504,182 @@ public final class Main {
         return one.length() <= 100 ? one : one.substring(0, 100) + "…";
     }
 
+    // ---- Day 15：/skill 录制即技能 ----
+
+    /**
+     * /skill save <name> <traceId>：LLM 分析 trace 产出参数化模板，用户确认后落盘。
+     * /skill list / show <name> / run <name> k=v ...：run 渲染后作为 user prompt 走普通 Agent。
+     */
+    private static void runSkillFlow(BufferedReader reader, ChatClient llm, Agent agent,
+                                     EventEmitter emitter, List<Message> history, String input) throws IOException {
+        String tail = input.substring("/skill".length()).trim();
+        if (tail.isEmpty()) {
+            System.out.println("[skill] 用法: save <name> <traceId> | list | show <name> | run <name> k=v ...");
+            return;
+        }
+        String[] parts = tail.split("\\s+", 3);
+        String sub = parts[0];
+        try {
+            switch (sub) {
+                case "list" -> listSkills();
+                case "show" -> showSkill(parts.length > 1 ? parts[1] : "");
+                case "save" -> saveSkill(reader, llm, parts.length > 1 ? parts[1] : "",
+                        parts.length > 2 ? parts[2] : "");
+                case "run" -> runSkill(reader, llm, agent, emitter, history, parts.length > 1 ? parts[1] : "",
+                        parts.length > 2 ? parts[2] : "");
+                default -> System.out.println("[skill] 未知子命令: " + sub
+                        + "（save | list | show | run）");
+            }
+        } catch (IllegalArgumentException e) {
+            System.out.println("[skill] " + e.getMessage());
+        }
+    }
+
+    private static void listSkills() throws IOException {
+        SkillRegistry reg = new SkillRegistry();
+        java.util.List<SkillRegistry.Skill> all = reg.list();
+        if (all.isEmpty()) {
+            System.out.println("[skill] 还没有技能。用 /skill save <name> <traceId> 从一条 trace 录制。");
+            return;
+        }
+        System.out.println("[skill] " + all.size() + " 个技能:");
+        for (SkillRegistry.Skill s : all) {
+            System.out.printf("  %-20s 目标: %s%n", s.name, s.goal);
+        }
+    }
+
+    private static void showSkill(String name) throws IOException {
+        if (name.isEmpty()) {
+            System.out.println("[skill] 用法: /skill show <name>");
+            return;
+        }
+        SkillRegistry reg = new SkillRegistry();
+        SkillRegistry.Skill s = reg.load(name);
+        System.out.println("技能 " + s.name + " · 目标: " + s.goal);
+        System.out.println("参数: " + String.join(", ", s.params));
+        System.out.println(s.body);
+    }
+
+    /** save：LLM 非流式生成模板 → 展示 → y/n 确认 → 落盘。 */
+    private static void saveSkill(BufferedReader reader, ChatClient llm, String name, String traceId)
+            throws IOException {
+        if (name.isEmpty() || traceId.isEmpty()) {
+            System.out.println("[skill] 用法: /skill save <name> <traceId>");
+            return;
+        }
+        if (llm == null) {
+            System.out.println("[skill] 需要 LLM 才能分析 trace，先配置 .env。");
+            return;
+        }
+        Path file = TraceRecorder.traceDir().resolve(traceId.endsWith(".jsonl") ? traceId : traceId + ".jsonl");
+        if (!Files.isRegularFile(file)) {
+            System.out.println("[skill] 未找到 trace: " + traceId);
+            return;
+        }
+        TraceReplay replay;
+        try {
+            replay = TraceReplay.load(file);
+        } catch (IOException e) {
+            System.out.println("[skill] trace 读取失败: " + e.getMessage());
+            return;
+        }
+        // 把 trace 压缩成步骤摘要喂给 LLM
+        StringBuilder steps = new StringBuilder();
+        for (TraceReplay.Event ev : replay.events()) {
+            switch (ev.type()) {
+                case "tool_call" -> steps.append("- ").append(ev.str("tool"))
+                        .append(' ').append(TraceReplay.argsOf(ev)).append('\n');
+                case "turn_end" -> steps.append("- answer: ").append(simplify(ev.str("answer"))).append('\n');
+                default -> { }
+            }
+        }
+        String prompt = "根据下面这段 Agent 执行记录，抽取出一个可复用的技能模板。"
+                + "只参数化\"输入类\"值（文件路径/URL/目录等），步骤逻辑保持原样。\n"
+                + "输出严格 Markdown 格式（不要输出其他文字）：\n"
+                + "---\nname: " + name + "\ngoal: 一句话目标\nparams: [参数1, 参数2]\n"
+                + "---\n## 步骤\n1. ...\n\n执行记录：\n" + steps;
+        System.out.println("[skill] LLM 正在分析 trace 并生成模板…");
+        String template;
+        try {
+            template = llm.call(java.util.List.of(new Message("user", prompt)));
+        } catch (Exception e) {
+            System.out.println("[skill] 模板生成失败: " + e.getMessage());
+            return;
+        }
+        System.out.println("--- 生成的技能模板 ---");
+        System.out.println(template);
+        System.out.print("保存为技能 " + name + " ？(y/N) > ");
+        String line = reader.readLine();
+        if (line == null || !("y".equalsIgnoreCase(line.trim()) || "yes".equalsIgnoreCase(line.trim()))) {
+            System.out.println("[skill] 已取消保存。");
+            return;
+        }
+        try {
+            SkillRegistry.Skill skill = SkillRegistry.parse(template);
+            SkillRegistry reg = new SkillRegistry();
+            Path saved = reg.save(skill);
+            System.out.println("[skill] 已保存: " + saved);
+        } catch (IllegalArgumentException e) {
+            System.out.println("[skill] 模板解析失败: " + e.getMessage());
+        }
+    }
+
+    /** run：k=v 替换模板变量 → 渲染结果作为 user prompt 走普通 Agent（同样录 trace，meta 标 skill）。 */
+    private static void runSkill(BufferedReader reader, ChatClient llm, Agent agent, EventEmitter emitter,
+                                 List<Message> history, String name, String kv) throws IOException {
+        if (name.isEmpty()) {
+            System.out.println("[skill] 用法: /skill run <name> k1=v1 k2=v2 ...");
+            return;
+        }
+        if (llm == null || agent == null) {
+            System.out.println("[skill] 需要 LLM 才能执行技能。");
+            return;
+        }
+        SkillRegistry reg = new SkillRegistry();
+        SkillRegistry.Skill skill = reg.load(name);
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        for (String item : kv.split("\\s+")) {
+            if (item.isBlank()) {
+                continue;
+            }
+            int eq = item.indexOf('=');
+            if (eq <= 0) {
+                System.out.println("[skill] 参数格式应为 k=v，收到: " + item);
+                return;
+            }
+            values.put(item.substring(0, eq), item.substring(eq + 1));
+        }
+        String prompt;
+        try {
+            prompt = reg.render(skill, values);
+        } catch (IllegalArgumentException e) {
+            System.out.println("[skill] " + e.getMessage());
+            return;
+        }
+        System.out.println("[skill] 执行技能 " + skill.name + "：" + simplify(prompt));
+        // 技能执行轮次录成独立 trace（type=skill, skill=name），随事件流广播
+        TraceRecorder skillTrace = null;
+        try {
+            skillTrace = TraceRecorder.openSkill(skill.name, "deepseek-chat", VERSION);
+        } catch (IOException e) {
+            System.out.println("[warn] 技能 trace 不可用: " + e.getMessage());
+        }
+        TraceRecorder st = skillTrace;
+        try {
+            String reply = agent.run(prompt, history);
+            System.out.println(reply);
+        } catch (Exception e) {
+            System.out.println("[error] " + e.getMessage());
+        } finally {
+            if (st != null) {
+                try {
+                    st.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
     /** 命令行是否含某 flag。 */
     private static boolean containsFlag(String[] args, String flag) {
         for (String a : args) {
@@ -539,6 +721,7 @@ public final class Main {
         tips.put("/plan", "生成任务计划 → 审阅后执行（r/i/c）");
         tips.put("/trace", "查看录制：list / show <id>");
         tips.put("/replay", "回放 trace：/replay <id>（dry-run）；--apply 真实执行");
+        tips.put("/skill", "录制即技能：save/list/show/run");
         tips.forEach((cmd, desc) -> System.out.printf("  %-10s · %s%n", cmd, desc));
         System.out.println();
     }

@@ -43,14 +43,18 @@ public final class TraceRecorder implements EventEmitter {
     private final String version;
     /** 非空表示这是一条 replay 录制：首行 meta 应标记 type=replay + source=<原id>。 */
     private final String replaySource;
+    /** 非空表示这是一条技能执行录制：meta 记 type=skill + skill=<名>。 */
+    private final String skillName;
     private boolean metaWritten = false;
 
-    private TraceRecorder(Path file, BufferedWriter writer, String model, String version, String replaySource) {
+    private TraceRecorder(Path file, BufferedWriter writer, String model, String version, String replaySource,
+                          String skillName) {
         this.file = file;
         this.writer = writer;
         this.model = model;
         this.version = version;
         this.replaySource = replaySource;
+        this.skillName = skillName;
     }
 
     /**
@@ -70,15 +74,25 @@ public final class TraceRecorder implements EventEmitter {
 
     /** 打开一条 replay 录制：meta 记 type=replay + source=<原 trace id>。 */
     public static TraceRecorder openReplay(String sourceId, String model, String version) throws IOException {
-        return openIn(traceDir(), model, version, sourceId);
+        return openIn(traceDir(), model, version, sourceId, null);
+    }
+
+    /** 打开一条技能执行录制：meta 记 type=skill + skill=<技能名>。 */
+    public static TraceRecorder openSkill(String skillName, String model, String version) throws IOException {
+        return openIn(traceDir(), model, version, null, skillName);
     }
 
     private static TraceRecorder openIn(Path dir, String model, String version, String replaySource)
             throws IOException {
+        return openIn(dir, model, version, replaySource, null);
+    }
+
+    private static TraceRecorder openIn(Path dir, String model, String version, String replaySource,
+                                        String skillName) throws IOException {
         Files.createDirectories(dir);
         Path file = dir.resolve(newTraceName(dir));
         BufferedWriter w = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
-        return new TraceRecorder(file, w, model, version, replaySource);
+        return new TraceRecorder(file, w, model, version, replaySource, skillName);
     }
 
     public Path file() {
@@ -111,6 +125,9 @@ public final class TraceRecorder implements EventEmitter {
         if (replaySource != null) {
             meta.put("type", "replay");
             meta.put("source", replaySource);
+        } else if (skillName != null) {
+            meta.put("type", "skill");
+            meta.put("skill", skillName);
         } else {
             meta.put("type", "meta");
             meta.put("user", truncate(userInput));

@@ -1,6 +1,6 @@
 # Day 15 · /skill save 录制即技能
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成　|　实际日期：09-16　|　commit：见下方记录
 
 ## 目标
 
@@ -8,22 +8,12 @@
 
 ## 任务清单
 
-- [ ] 新增 `skill/SkillRegistry.java`：技能目录 `~/.agentcli/skills/*.md`
-- [ ] `/skill save <name> <traceId>`：LLM 非流式调用分析 trace，产出模板：
-  ```markdown
-  ---
-  name: summarize-readme
-  goal: 阅读指定文件并生成摘要文件
-  params: [source, output]
-  ---
-  ## 步骤
-  1. read_file {{source}}
-  2. 根据内容写 {{output}}，格式：一句话定位 + 3-5 条要点
-  ```
-- [ ] 参数抽取规则：出现 ≥1 次的路径/URL/文件名候选参数化，LLM 给出语义化参数名
-- [ ] `/skill list` / `/skill show <name>` / `/skill run <name> k1=v1 k2=v2`：模板变量替换后作为 user prompt 前置注入，走普通 Agent 执行
-- [ ] 执行技能的轮次同样录 trace（meta 标记 skill=name）
-- [ ] 测试：模板变量替换；非法参数名报错列出可用 params
+- [x] 新增 `skill/SkillRegistry.java`：技能目录 `~/.agentcli/skills/*.md`
+- [x] `/skill save <name> <traceId>`：LLM 非流式调用分析 trace，产出模板，展示后 y/n 确认落盘
+- [x] 参数抽取规则：提示 LLM 只参数化"输入类"值（路径/URL），步骤逻辑不参数化
+- [x] `/skill list` / `/skill show <name>` / `/skill run <name> k1=v1 k2=v2`：模板变量替换后作为 user prompt 前置注入，走普通 Agent 执行
+- [x] 执行技能的轮次同样录 trace（meta 标记 type=skill, skill=name）
+- [x] 测试：模板变量替换；缺参/非法参数名报错列出可用 params；front-matter 损坏拒收
 
 ## 涉及文件
 
