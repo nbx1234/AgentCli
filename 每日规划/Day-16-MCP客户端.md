@@ -1,6 +1,6 @@
 # Day 16 · MCP Client（stdio）
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成　|　实际日期：09-17　|　commit：见下方记录
 
 ## 目标
 
@@ -8,16 +8,13 @@
 
 ## 任务清单
 
-- [ ] 新增 `mcp/McpClient.java`：子进程 stdio + 换行分隔 JSON-RPC 2.0
+- [x] 新增 `mcp/McpClient.java`：子进程 stdio + 换行分隔 JSON-RPC 2.0
   - `initialize` → `notifications/initialized` → `tools/list` → `tools/call`
-- [ ] 新增 `mcp/McpServerManager.java`：读 `~/.agentcli/mcp.json`：
-  ```json
-  {"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/tmp/mcp-demo"]}}}
-  ```
-- [ ] 工具注册：每个 MCP tool 以 `mcp__<server>__<tool>` 进入 ToolRegistry，schema 从 tools/list 转换
-- [ ] `/mcp` 命令：列 server 连接状态 + 工具数
-- [ ] 写一个 20 行的 Node echo server（`examples/mcp-echo.js`）做联调靶子：add(a,b)、echo(text) 两个工具
-- [ ] 测试：echo server 真实启动联调（标记 @Tag("mcp")，CI 可跳过）；JSON-RPC 编解码单测
+- [x] 新增 `mcp/McpServerManager.java`：读 `~/.agentcli/mcp.json`
+- [x] 工具注册：每个 MCP tool 以 `mcp__<server>__<tool>` 进入 ToolRegistry，schema 从 tools/list 转换
+- [x] `/mcp` 命令：列 server 连接状态 + 工具数
+- [x] 写了一个 Node echo server（`examples/mcp-echo.js`）做联调靶子：add(a,b)、echo(text) 两个工具
+- [x] 测试：echo server 真实启动联调（标记 @Tag("mcp")，CI 可跳过）；JSON-RPC 编解码单测
 
 ## 涉及文件
 

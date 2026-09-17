@@ -5,6 +5,7 @@ import com.agentcli.agent.SubAgent;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.DeepSeekClient;
 import com.agentcli.llm.Message;
+import com.agentcli.mcp.McpServerManager;
 import com.agentcli.plan.ExecutionPlan;
 import com.agentcli.plan.PlanExecutor;
 import com.agentcli.plan.PlanReviewParser;
@@ -91,6 +92,7 @@ public final class Main {
         WebServer[] webServerRef = new WebServer[1];
         TraceRecorder[] traceRef = new TraceRecorder[1];
         EventEmitter[] emitterRef = new EventEmitter[1];
+        McpServerManager[] mcpRef = new McpServerManager[1];
         try {
             llm = DeepSeekClient.fromEnv();
             EventEmitter console = new ConsoleSink();
@@ -155,6 +157,9 @@ public final class Main {
                 } catch (IOException ignored) {
                 }
             }
+            if (mcpRef[0] != null) {
+                mcpRef[0].closeAll();
+            }
             System.out.println("\nBye.");
         }));
 
@@ -204,6 +209,11 @@ public final class Main {
             // Day 15：/skill 录制即技能：save / list / show / run
             if (input.startsWith("/skill")) {
                 runSkillFlow(reader, llm, agent, emitterRef[0], history, input);
+                continue;
+            }
+            // Day 16：/mcp 连接外部 MCP server，工具动态注册进 ToolRegistry
+            if (input.startsWith("/mcp")) {
+                runMcpCommand(registry, mcpRef, input);
                 continue;
             }
             // Day 10-12：/plan 生成 → 审阅 → 执行
@@ -680,6 +690,47 @@ public final class Main {
         }
     }
 
+    // ---- Day 16：/mcp ----
+
+    /**
+     * /mcp 读取 ~/.agentcli/mcp.json 并连接所有 server，
+     * 把每个工具以 mcp__<server>__<tool> 注册进 ToolRegistry，然后打印状态。
+     */
+    private static void runMcpCommand(ToolRegistry registry, McpServerManager[] mcpRef, String input) {
+        if (registry == null) {
+            System.out.println("[mcp] 工具环境不可用。");
+            return;
+        }
+        String tail = input.substring("/mcp".length()).trim();
+        if (!tail.isEmpty() && !"connect".equals(tail) && !"status".equals(tail)) {
+            System.out.println("[mcp] 用法: /mcp connect | /mcp status");
+            return;
+        }
+        McpServerManager manager = mcpRef[0] != null ? mcpRef[0] : new McpServerManager();
+        mcpRef[0] = manager;
+        if ("status".equals(tail) && !manager.connections().isEmpty()) {
+            printMcpStatus(manager);
+            return;
+        }
+        try {
+            manager.connectAll(registry);
+            printMcpStatus(manager);
+        } catch (IOException e) {
+            System.out.println("[mcp] " + e.getMessage());
+        }
+    }
+
+    private static void printMcpStatus(McpServerManager manager) {
+        if (manager.connections().isEmpty()) {
+            System.out.println("[mcp] 未连接任何 server（配置: " + manager.configPath() + "）");
+            return;
+        }
+        System.out.println("[mcp] 已连接 " + manager.connections().size() + " 个 server:");
+        for (McpServerManager.Connection c : manager.connections()) {
+            System.out.printf("  %-16s alive=%s tools=%d%n", c.server, c.client.isAlive(), c.toolCount);
+        }
+    }
+
     /** 命令行是否含某 flag。 */
     private static boolean containsFlag(String[] args, String flag) {
         for (String a : args) {
@@ -722,6 +773,7 @@ public final class Main {
         tips.put("/trace", "查看录制：list / show <id>");
         tips.put("/replay", "回放 trace：/replay <id>（dry-run）；--apply 真实执行");
         tips.put("/skill", "录制即技能：save/list/show/run");
+        tips.put("/mcp", "连接 MCP server 并列出工具状态");
         tips.forEach((cmd, desc) -> System.out.printf("  %-10s · %s%n", cmd, desc));
         System.out.println();
     }
