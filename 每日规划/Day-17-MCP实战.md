@@ -1,6 +1,6 @@
 # Day 17 · Filesystem MCP 实战 + resources 提及
 
-> 状态：⬜ 未开始　|　实际日期：________　|　commit：________
+> 状态：✅ 已完成　|　实际日期：09-18　|　commit：见下方记录
 
 ## 目标
 
@@ -8,12 +8,12 @@
 
 ## 任务清单
 
-- [ ] mcp.json 配 `@modelcontextprotocol/server-filesystem` 指向一个 demo 目录；README 写清一行启动命令
-- [ ] resources：`resources/list` → 每个资源注册成虚拟工具 `mcp__<server>__resource__<uri>`（调用即 read）
-- [ ] `@fs:readme` 式 mention：输入含 `@<server>:<uri>` 时先 read 内容内联为 `<resource>` 块再进 Agent
-- [ ] PathGuard 对 MCP filesystem server 不生效（沙箱由 server 启动参数限定），但在工具 description 里写明"仅限 demo 目录"让 LLM 有边界感
-- [ ] Demo 数据：demo 目录放 2 个 md + 1 个 json，验收用
-- [ ] 测试：mention 展开器单测（命中/未命中/转义）
+- [x] mcp.json 配 `@modelcontextprotocol/server-filesystem` 指向 demo 目录；README 写清一行启动命令
+- [x] resources：`resources/list` → 每个资源注册成虚拟工具 `mcp__<server>__resource__<uri>`（调用即 read）
+- [x] `@fs:readme` 式 mention：输入含 `@<server>:<uri>` 时先 read 内容内联为 `<resource>` 块再进 Agent
+- [x] PathGuard 对 MCP filesystem server 不生效（沙箱由 server 启动参数限定），工具 description 里写明来源 server 让 LLM 有边界感
+- [x] Demo 数据：demo/mcp-fs 放 2 个 md + 1 个 json，验收用
+- [x] 测试：mention 展开器单测（命中/未命中/转义/多提及）
 
 ## 涉及文件
 

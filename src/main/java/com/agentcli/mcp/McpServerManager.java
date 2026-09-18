@@ -32,6 +32,15 @@ public final class McpServerManager {
         return "mcp__" + server + "__" + tool;
     }
 
+    /** 资源虚拟工具名：mcp__<server>__resource__<uri>。uri 非字母数字时做占位转义。 */
+    static String resourceToolName(String server, String uri) {
+        String safe = uri.replaceAll("[^A-Za-z0-9_\\-]", "_");
+        if (safe.length() > 60) {
+            safe = safe.substring(0, 60);
+        }
+        return "mcp__" + server + "__resource__" + safe;
+    }
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final Path configPath;
@@ -66,6 +75,36 @@ public final class McpServerManager {
     /** 已连接的 servers（供 /mcp 展示）。 */
     public List<Connection> connections() {
         return connections;
+    }
+
+    /** server 是否已连接。 */
+    public boolean isConnected(String server) {
+        return find(server) != null;
+    }
+
+    /**
+     * Day 17：按 @server:uri 读取资源内容。server 未连接或读取失败返回 null
+     * （调用方保持提及原样）。资源内容即 filesystem server 的文本。
+     */
+    public String resolveResource(String server, String uri) {
+        Connection c = find(server);
+        if (c == null) {
+            return null;
+        }
+        try {
+            return c.client.readResource(uri);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private Connection find(String server) {
+        for (Connection c : connections) {
+            if (c.server.equals(server)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     /**
@@ -121,9 +160,34 @@ public final class McpServerManager {
                             });
                     n++;
                 }
+                // Day 17：resources/list 是"可选能力"，把每个资源注册成虚拟只读工具 mcp__<s>__resource__<uri>
+                try {
+                    JsonNode resources = client.listResources();
+                    for (JsonNode r : resources) {
+                        String uri = r.path("uri").asText("");
+                        if (uri.isBlank()) {
+                            continue;
+                        }
+                        String label = r.path("name").asText(uri);
+                        String fullName = resourceToolName(name, uri);
+                        registry.register(new ToolDefinition(fullName,
+                                        "读取 MCP 资源 " + label + "（server: " + name + "）",
+                                        "{\"type\":\"object\",\"properties\":{}}"),
+                                argsMap -> {
+                                    try {
+                                        return client.readResource(uri);
+                                    } catch (IOException ex) {
+                                        return "MCP resource 读取失败(" + name + "/" + uri + "): " + ex.getMessage();
+                                    }
+                                });
+                        n++;
+                    }
+                } catch (IOException ignore) {
+                    // server 不支持 resources/list，属正常，不作为失败
+                }
                 connections.add(new Connection(name, client, n));
                 ok.add(name);
-                System.out.println("[mcp] 已连接 " + name + "：" + n + " 个工具");
+                System.out.println("[mcp] 已连接 " + name + "：" + n + " 个工具/资源");
             } catch (IOException ex) {
                 System.out.println("[mcp] 连接 " + name + " 失败: " + ex.getMessage());
             }

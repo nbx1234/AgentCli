@@ -103,6 +103,35 @@ public final class McpClient implements AutoCloseable {
         return result.path("tools");
     }
 
+    /** 列出 server 声明的 resources（resources/list 的 result.resources 数组）。不支持时返回空数组。 */
+    public JsonNode listResources() throws IOException {
+        int id = nextId++;
+        JsonNode resp = request("resources/list", null, id);
+        JsonNode result = resp.path("result");
+        if (result.isMissingNode()) {
+            return MAPPER.createArrayNode();
+        }
+        return result.path("resources");
+    }
+
+    /** 读取一个 resource（resources/read），返回 text 内容。 */
+    public String readResource(String uri) throws IOException {
+        ObjectNode params = MAPPER.createObjectNode();
+        params.put("uri", uri);
+        int id = nextId++;
+        JsonNode resp = request("resources/read", params, id);
+        JsonNode error = resp.path("error");
+        if (!error.isMissingNode()) {
+            return "MCP resource 读取失败: " + error.path("message").asText(error.toString());
+        }
+        JsonNode contents = resp.path("result").path("contents");
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode c : contents) {
+            sb.append(c.path("text").asText(""));
+        }
+        return sb.toString().isBlank() ? resp.toString() : sb.toString();
+    }
+
     /** 调用工具，返回 result.content 中第一段 text 文本。 */
     public String callTool(String toolName, Map<String, Object> arguments) throws IOException {
         ObjectNode params = MAPPER.createObjectNode();

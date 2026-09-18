@@ -9,9 +9,9 @@
 
 ## 当前状态
 
-**Day 0 · v0.0.1** — 工具链贯通：能 `mvn package` 出 fat jar，启动 Banner + 简易 REPL 回显。LLM 从 Day 1 接入。
+**Day 17 · v0.0.1** — MCP filesystem 接入 + `@server:uri` 资源提及，外部数据像本地文件一样可读。
 
-进度条：`[█░░░░░░░░░] 0/21`
+进度条：`[███████░░░] 17/21`
 
 ## 快速开始
 
@@ -25,6 +25,19 @@ java -jar target/agentcli-0.0.1.jar
 - `:help` 看命令
 - `:version` 看版本
 - `:quit` 退出
+
+## MCP 快速开始（5 分钟内跑通）
+
+1. 写好 `~/.agentcli/mcp.json`（示例指向仓库自带 demo 目录）：
+   ```json
+   {"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","demo/mcp-fs"]}}}
+   ```
+2. 启动 AgentCli 后执行 `/mcp`，看到 `已连接 fs：N 个工具/资源`。
+3. 直接问：`总结 @fs:demo/mcp-fs/notes.md 的要点` —— 提及会被内联成 `<resource>` 块再进 Agent。
+
+> 没有 node 时：可换成 Python 版 filesystem server（`uvx mcp-server-filesystem demo/mcp-fs`），
+> 或 `AGENTCLI_MCP_CONFIG=/path/to/mcp.json` 指定配置位置。
+> 不配置 MCP 时普通对话完全不受影响。
 
 ## 21 天路线图
 

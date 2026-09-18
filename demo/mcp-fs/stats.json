@@ -1,0 +1,6 @@
+{
+  "project": "AgentCli",
+  "language": "java",
+  "tests": 89,
+  "features": ["react", "plan", "trace", "replay", "skill", "mcp"]
+}

@@ -6,6 +6,7 @@ import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.DeepSeekClient;
 import com.agentcli.llm.Message;
 import com.agentcli.mcp.McpServerManager;
+import com.agentcli.mcp.MentionExpander;
 import com.agentcli.plan.ExecutionPlan;
 import com.agentcli.plan.PlanExecutor;
 import com.agentcli.plan.PlanReviewParser;
@@ -230,9 +231,22 @@ public final class Main {
                 System.out.println("[warn] 未配置 LLM，请先在 .env 填 DEEPSEEK_API_KEY");
                 continue;
             }
+            // Day 17：@server:uri 提及展开（在 history 追加之前）；trace 的 user 字段记原始输入
+            String promptInput = input;
+            McpServerManager mcp = mcpRef[0];
+            if (mcp != null && !mcp.connections().isEmpty()) {
+                String expanded = MentionExpander.expand(input, mcp::resolveResource);
+                if (!expanded.equals(input)) {
+                    emitterRef[0].emit("mention_expanded",
+                            Map.of("type", "mention_expanded", "input", input,
+                                    "preview", simplify(expanded)));
+                    promptInput = expanded;
+                    System.out.println("[mention] 已展开 " + MentionExpander.findMentions(input).size() + " 个资源引用");
+                }
+            }
             // Day 5：交给 Agent 走 ReAct 循环（内部处理历史、工具调用与答案）
             try {
-                String reply = agent.run(input, history);
+                String reply = agent.run(promptInput, history);
                 System.out.println(reply);
             } catch (Exception e) {
                 System.out.println("[error] " + e.getMessage());
