@@ -91,6 +91,9 @@
     .t-turn_end     .tag { background: var(--green); }
     .t-llm_start .tag, .t-llm_end .tag, .t-llm_call .tag { background: var(--cyan); }
     .t-hello        .tag { background: var(--grey); }
+    /* Day 18：审批事件 */
+    .t-approval_request .tag { background: #ef4444; }
+    .t-approval_result  .tag { background: #a855f7; }
     pre.reasoning { color: var(--muted); font-style: italic; }
     /* tool_result 默认折叠 */
     .collapsible .body { display: none; }
@@ -260,6 +263,19 @@
       const p = JSON.parse(e.data);
       const head = '结果 ' + esc(p.tool) + ' · ' + renderDuration(p);
       addCard('tool_result', head, '<pre>' + esc(p.result || '') + '</pre>', true);
+    });
+    // Day 18：HITL 审批事件
+    es.addEventListener('approval_request', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      addCard('approval_request', '审批请求 · ' + esc(p.tool),
+        '<pre>' + esc(p.risk || '') + '\n' + esc(p.args || '') + '</pre>');
+    });
+    es.addEventListener('approval_result', e => {
+      count++; countEl.textContent = count;
+      const p = JSON.parse(e.data);
+      addCard('approval_result', '审批结果 · ' + esc(p.tool) + ' · ' + esc(p.decision),
+        '<pre>来源: ' + esc(p.source || '') + '</pre>');
     });
     // 回答逐字出现：累积到一个"正在回答"卡片
     let typingCard = null;

@@ -2,6 +2,8 @@ package com.agentcli;
 
 import com.agentcli.agent.Agent;
 import com.agentcli.agent.SubAgent;
+import com.agentcli.hitl.Approver;
+import com.agentcli.hitl.ApprovalPolicy;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.DeepSeekClient;
 import com.agentcli.llm.Message;
@@ -12,6 +14,7 @@ import com.agentcli.plan.PlanExecutor;
 import com.agentcli.plan.PlanReviewParser;
 import com.agentcli.plan.Planner;
 import com.agentcli.plan.Task;
+import com.agentcli.policy.AuditLog;
 import com.agentcli.skill.SkillRegistry;
 import com.agentcli.tool.ExecuteCommandTool;
 import com.agentcli.tool.ReadFileTool;
@@ -94,6 +97,8 @@ public final class Main {
         TraceRecorder[] traceRef = new TraceRecorder[1];
         EventEmitter[] emitterRef = new EventEmitter[1];
         McpServerManager[] mcpRef = new McpServerManager[1];
+        // Day 18：审批面板与 plan 审阅共用同一条 stdin，reader 提前创建
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         try {
             llm = DeepSeekClient.fromEnv();
             EventEmitter console = new ConsoleSink();
@@ -139,15 +144,22 @@ public final class Main {
             };
             registry = buildRegistry();
             emitterRef[0] = emitter;
-            agent = new Agent(llm, registry, emitter);
-            subAgent = new SubAgent(llm, registry, emitter);
+            // Day 18：HITL 审批层（只读放行 / 写执行必审 / 黑名单 DENY），审计日志可降级
+            AuditLog audit = null;
+            try {
+                audit = AuditLog.openDefault();
+            } catch (IOException ae) {
+                System.out.println("[warn] 审计日志不可用: " + ae.getMessage());
+            }
+            Approver approver = new Approver(new ApprovalPolicy(), reader::readLine, audit, emitter);
+            agent = new Agent(llm, registry, emitter, approver);
+            subAgent = new SubAgent(llm, registry, emitter, approver);
         } catch (IllegalStateException e) {
             System.out.println("[warn] " + e.getMessage());
             System.out.println("      请复制 .env.example 为 .env 并填入 DEEPSEEK_API_KEY 后再试。");
         }
         // Trace 目录不可用等异常到此已单独降级，主流程仍可继续。
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if (webServerRef[0] != null) {
                 webServerRef[0].stop();
@@ -195,6 +207,11 @@ public final class Main {
             }
             if ("/history".equals(input)) {
                 printHistory(history);
+                continue;
+            }
+            // Day 18：/audit 查看审计日志（最近 20 条，不依赖 LLM）
+            if ("/audit".equals(input)) {
+                runAuditCommand();
                 continue;
             }
             // Day 13：/trace 不走 LLM，独立于对话历史解析
@@ -266,13 +283,31 @@ public final class Main {
         }
     }
 
-    /** 组装工具注册表（读写文件 + 执行命令），走路径/命令护栏。 */
+    /** Day 18：/audit 展示审计日志最近 20 条。 */
+    private static void runAuditCommand() {
+        try {
+            List<Map<String, Object>> rows = AuditLog.recent(20);
+            if (rows.isEmpty()) {
+                System.out.println("[audit] 暂无审计记录");
+                return;
+            }
+            System.out.println("[audit] 最近 " + rows.size() + " 条（" + AuditLog.defaultFile() + "）:");
+            for (Map<String, Object> r : rows) {
+                System.out.printf("  %-6s %-20s %-8s %s%n",
+                        r.get("decision"), r.get("tool"), r.get("source"),
+                        simplify(String.valueOf(r.get("args"))));
+            }
+        } catch (IOException e) {
+            System.out.println("[audit] 读取失败: " + e.getMessage());
+        }
+    }
+
+    /** 组装工具注册表（读写文件 + 执行命令），走路径/命令护栏；写入审批由 Approver 负责。 */
     private static ToolRegistry buildRegistry() throws IOException {
         File root = Env.rootPath().toFile();
-        BufferedReader prompt = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         ToolRegistry registry = new ToolRegistry();
         registry.register(new ReadFileTool(root));
-        registry.register(new WriteFileTool(root, prompt));
+        registry.register(new WriteFileTool(root));
         registry.register(new ExecuteCommandTool(root));
         return registry;
     }
@@ -783,6 +818,7 @@ public final class Main {
         tips.put(":quit", "退出");
         tips.put("/clear", "清空对话历史");
         tips.put("/history", "查看历史（条数与最近 3 条）");
+        tips.put("/audit", "查看审计日志（最近 20 条）");
         tips.put("/plan", "生成任务计划 → 审阅后执行（r/i/c）");
         tips.put("/trace", "查看录制：list / show <id>");
         tips.put("/replay", "回放 trace：/replay <id>（dry-run）；--apply 真实执行");

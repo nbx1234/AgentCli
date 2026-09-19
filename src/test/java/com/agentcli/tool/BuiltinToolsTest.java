@@ -3,9 +3,7 @@ package com.agentcli.tool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Map;
@@ -44,18 +42,19 @@ class BuiltinToolsTest {
     }
 
     @Test
-    void writeFileWritesWhenConfirmed() throws Exception {
-        WriteFileTool tool = new WriteFileTool(root, new BufferedReader(new StringReader("y\n")));
+    void writeFileWritesDirectly() throws Exception {
+        // Day 18：工具内置 y/n 已上移到审批层，WriteFileTool 只写盘
+        WriteFileTool tool = new WriteFileTool(root);
         String result = tool.execute(Map.of("path", "test.txt", "content", "hello"));
         assertTrue(result.startsWith("已写入"));
         assertEquals("hello", Files.readString(new File(root, "test.txt").toPath()));
     }
 
     @Test
-    void writeFileRejectsWhenDeclined() throws Exception {
-        WriteFileTool tool = new WriteFileTool(root, new BufferedReader(new StringReader("n\n")));
-        String result = tool.execute(Map.of("path", "test.txt", "content", "hello"));
-        assertTrue(result.contains("拒绝"));
+    void writeFileRejectsEscape() {
+        WriteFileTool tool = new WriteFileTool(root);
+        String result = tool.execute(Map.of("path", "../../etc/passwd", "content", "x"));
+        assertTrue(result.startsWith("拒绝"));
         assertFalse(new File(root, "test.txt").exists());
     }
 

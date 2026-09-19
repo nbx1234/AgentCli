@@ -1,5 +1,6 @@
 package com.agentcli.agent;
 
+import com.agentcli.hitl.Approver;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.Message;
 import com.agentcli.plan.ExecutionPlan;
@@ -22,7 +23,12 @@ public final class SubAgent implements TaskRunner {
     private final Agent agent;
 
     public SubAgent(ChatClient client, ToolRegistry registry, EventEmitter events) {
-        this.agent = new Agent(client, registry, events);
+        this(client, registry, events, null);
+    }
+
+    /** Day 18：计划任务内的工具调用同样过审批层，不绕过安全线。 */
+    public SubAgent(ChatClient client, ToolRegistry registry, EventEmitter events, Approver approver) {
+        this.agent = new Agent(client, registry, events, approver);
     }
 
     @Override

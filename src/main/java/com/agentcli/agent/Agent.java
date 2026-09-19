@@ -1,5 +1,6 @@
 package com.agentcli.agent;
 
+import com.agentcli.hitl.Approver;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.LlmResponse;
 import com.agentcli.llm.Message;
@@ -31,15 +32,22 @@ public class Agent {
     private final ChatClient client;
     private final ToolRegistry registry;
     private final EventEmitter events;
+    /** Day 18：HITL 审批器；null 表示不介入（测试/无审批环境）。 */
+    private final Approver approver;
 
     public Agent(ChatClient client, ToolRegistry registry) {
-        this(client, registry, EventEmitter.NOOP);
+        this(client, registry, EventEmitter.NOOP, null);
     }
 
     public Agent(ChatClient client, ToolRegistry registry, EventEmitter events) {
+        this(client, registry, events, null);
+    }
+
+    public Agent(ChatClient client, ToolRegistry registry, EventEmitter events, Approver approver) {
         this.client = client;
         this.registry = registry;
         this.events = events;
+        this.approver = approver;
     }
 
     /**
@@ -88,7 +96,14 @@ public class Agent {
                             .put("tool", tc.name()).put("id", tc.id())
                             .put("args", tc.argumentsJson()).put("preview", preview).build());
                     long execStart = System.nanoTime();
-                    String result = registry.execute(tc);
+                    // Day 18：工具执行前过审批层；拒绝文本作为 tool 结果回传，让 LLM 调整方案
+                    String result;
+                    if (approver != null) {
+                        String blocked = approver.intercept(tc);
+                        result = blocked != null ? blocked : registry.execute(tc);
+                    } else {
+                        result = registry.execute(tc);
+                    }
                     long execMs = (System.nanoTime() - execStart) / 1_000_000;
                     events.emit("tool_result", EventPayload.create("tool_result").iteration(iteration)
                             .put("tool", tc.name()).durationMs(execMs)
