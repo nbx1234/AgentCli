@@ -2,6 +2,8 @@ package com.agentcli;
 
 import com.agentcli.agent.Agent;
 import com.agentcli.agent.SubAgent;
+import com.agentcli.context.HistoryCompactor;
+import com.agentcli.context.TokenEstimator;
 import com.agentcli.hitl.Approver;
 import com.agentcli.hitl.ApprovalPolicy;
 import com.agentcli.llm.ChatClient;
@@ -99,6 +101,9 @@ public final class Main {
         McpServerManager[] mcpRef = new McpServerManager[1];
         // Day 18：审批面板与 plan 审阅共用同一条 stdin，reader 提前创建
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        // Day 19：Token 估算 / 上下文压缩（agent 与 /ctx /compact 共用同一实例）
+        TokenEstimator estimator = new TokenEstimator();
+        HistoryCompactor[] compactorRef = new HistoryCompactor[1];
         try {
             llm = DeepSeekClient.fromEnv();
             EventEmitter console = new ConsoleSink();
@@ -135,11 +140,15 @@ public final class Main {
                 trace = null;
                 System.out.println("[warn] Trace 目录不可用，本次不录制: " + te.getMessage());
             }
+            // Day 19：plan 并行任务会并发 emit → 聚合 emitter 加锁，保证 console/web/trace 不交错
+            final Object emitLock = new Object();
             EventEmitter emitter = (t, p) -> {
-                sink.emit(t, p);
-                TraceRecorder tr = traceRef[0];
-                if (tr != null) {
-                    tr.emit(t, p);
+                synchronized (emitLock) {
+                    sink.emit(t, p);
+                    TraceRecorder tr = traceRef[0];
+                    if (tr != null) {
+                        tr.emit(t, p);
+                    }
                 }
             };
             registry = buildRegistry();
@@ -152,8 +161,12 @@ public final class Main {
                 System.out.println("[warn] 审计日志不可用: " + ae.getMessage());
             }
             Approver approver = new Approver(new ApprovalPolicy(), reader::readLine, audit, emitter);
-            agent = new Agent(llm, registry, emitter, approver);
-            subAgent = new SubAgent(llm, registry, emitter, approver);
+            // Day 19：构造共享压缩器，传给 Agent 实现自动压缩；/compact 手动触发
+            HistoryCompactor compactor = new HistoryCompactor(llm);
+            compactorRef[0] = compactor;
+            long window = contextWindow();
+            agent = new Agent(llm, registry, emitter, approver, compactor, window);
+            subAgent = new SubAgent(llm, registry, emitter, approver, compactor, window);
         } catch (IllegalStateException e) {
             System.out.println("[warn] " + e.getMessage());
             System.out.println("      请复制 .env.example 为 .env 并填入 DEEPSEEK_API_KEY 后再试。");
@@ -212,6 +225,19 @@ public final class Main {
             // Day 18：/audit 查看审计日志（最近 20 条，不依赖 LLM）
             if ("/audit".equals(input)) {
                 runAuditCommand();
+                continue;
+            }
+            // Day 19：/ctx 预算占用；/compact 手动立即压缩
+            if ("/ctx".equals(input)) {
+                runCtxCommand(estimator, history);
+                continue;
+            }
+            if ("/compact".equals(input)) {
+                if (compactorRef[0] == null || llm == null) {
+                    System.out.println("[compact] 需要 LLM，请先配置 .env。");
+                } else {
+                    runCompactCommand(compactorRef[0], estimator, history);
+                }
                 continue;
             }
             // Day 13：/trace 不走 LLM，独立于对话历史解析
@@ -300,6 +326,48 @@ public final class Main {
         } catch (IOException e) {
             System.out.println("[audit] 读取失败: " + e.getMessage());
         }
+    }
+
+    /** Day 19：/ctx 展示 token 占用 / 窗口百分比 / 距离阈值。 */
+    private static void runCtxCommand(TokenEstimator estimator, List<Message> history) {
+        long window = contextWindow();
+        long threshold = window - 8 * 1024L - 6 * 1024L;
+        int used = estimator.estimate(history);
+        int msgs = history.size();
+        long pct = window <= 0 ? 0 : used * 100 / window;
+        System.out.println("[ctx] token 占用 " + used + " / " + window + " (" + pct + "%) · 消息 " + msgs + " 条");
+        System.out.println("      压缩阈值 " + threshold + "，距离 " + Math.max(0, threshold - used) + " tokens");
+    }
+
+    /** Day 19：/compact 手动立即压缩（同步；输出前后对比）。 */
+    private static void runCompactCommand(HistoryCompactor compactor, TokenEstimator estimator,
+                                          List<Message> history) {
+        if (history.isEmpty()) {
+            System.out.println("[compact] 历史为空，无需压缩。");
+            return;
+        }
+        int before = estimator.estimate(history);
+        List<Message> compacted = compactor.compact(history);
+        history.clear();
+        history.addAll(compacted);
+        int after = estimator.estimate(history);
+        System.out.println("[compact] " + before + " → " + after + " tokens（" + (before - after) + " 节省）");
+    }
+
+    /** Day 19：上下文窗口大小（token）：AGENTCLI_CONTEXT_WINDOW 覆盖，默认 64k。 */
+    private static long contextWindow() {
+        String v = Env.get("AGENTCLI_CONTEXT_WINDOW");
+        if (v != null && !v.isBlank()) {
+            try {
+                long w = Long.parseLong(v.trim());
+                if (w > 0) {
+                    return w;
+                }
+            } catch (NumberFormatException ignored) {
+                // 回落默认
+            }
+        }
+        return 65536;
     }
 
     /** 组装工具注册表（读写文件 + 执行命令），走路径/命令护栏；写入审批由 Approver 负责。 */
@@ -819,6 +887,8 @@ public final class Main {
         tips.put("/clear", "清空对话历史");
         tips.put("/history", "查看历史（条数与最近 3 条）");
         tips.put("/audit", "查看审计日志（最近 20 条）");
+        tips.put("/ctx", "查看 token 占用与压缩阈值");
+        tips.put("/compact", "手动立即压缩上下文");
         tips.put("/plan", "生成任务计划 → 审阅后执行（r/i/c）");
         tips.put("/trace", "查看录制：list / show <id>");
         tips.put("/replay", "回放 trace：/replay <id>（dry-run）；--apply 真实执行");

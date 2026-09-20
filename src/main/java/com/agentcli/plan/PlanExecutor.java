@@ -3,15 +3,23 @@ package com.agentcli.plan;
 import com.agentcli.web.EventEmitter;
 import com.agentcli.web.EventPayload;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * 按拓扑序（就绪优先）驱动计划执行，推进任务状态机并广播过程事件。
  *
- * 执行模型：每轮取依赖全 DONE 的就绪任务逐个执行（串行）；失败/被跳过的前置任务
- * 会使下游级联标 SKIPPED。串行即可，并行留到打磨期。
+ * Day 19：同一批内互无依赖的 ready 任务用固定线程池（4）并行执行，结果按原序收集；
+ * 事件发射经 {@code lock} 串行化，保证 SSE / trace 不交错。
  */
 public final class PlanExecutor {
+
+    private static final int PARALLEL = 4;
+    /** 串行化事件发射的锁：并发任务都在这个锁上广播，避免时间线/trace 交错。 */
+    private static final Object EVENT_LOCK = new Object();
 
     private final TaskRunner runner;
     private final EventEmitter events;
@@ -22,24 +30,39 @@ public final class PlanExecutor {
     }
 
     public void execute(ExecutionPlan plan) {
-        while (!plan.settled()) {
-            List<Task> ready = plan.readyTasks();
-            if (ready.isEmpty()) {
-                markSkips(plan); // 剩余 PENDING 都被失败前置阻塞 → 全标 SKIPPED
-                break;
+        ExecutorService pool = Executors.newFixedThreadPool(PARALLEL);
+        try {
+            while (!plan.settled()) {
+                List<Task> ready = plan.readyTasks();
+                if (ready.isEmpty()) {
+                    markSkips(plan); // 剩余 PENDING 都被失败前置阻塞 → 全标 SKIPPED
+                    break;
+                }
+                List<Future<?>> futures = new ArrayList<>();
+                for (Task t : ready) {
+                    futures.add(pool.submit(() -> runOne(t, plan)));
+                }
+                for (Future<?> f : futures) {
+                    try {
+                        f.get();
+                    } catch (Exception ignored) {
+                        // 任务自身已把 FAILED 写进状态，这里只需消费异常
+                    }
+                }
+                markSkips(plan);
             }
-            for (Task t : ready) {
-                runOne(t, plan);
-            }
-            markSkips(plan);
+        } finally {
+            pool.shutdown();
         }
     }
 
     private void runOne(Task t, ExecutionPlan plan) {
-        t.setStatus(Task.Status.RUNNING);
-        events.emit("task_start", EventPayload.create("task_start")
-                .put("task", t.id()).put("title", t.title())
-                .put("deps", t.dependsOn()).build());
+        synchronized (EVENT_LOCK) {
+            t.setStatus(Task.Status.RUNNING);
+            events.emit("task_start", EventPayload.create("task_start")
+                    .put("task", t.id()).put("title", t.title())
+                    .put("deps", t.dependsOn()).build());
+        }
         try {
             String conclusion = runner.run(t, plan);
             if (conclusion != null && conclusion.startsWith("[FAILED]")) {

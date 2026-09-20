@@ -35,7 +35,9 @@ class PlanExecutorTest {
         RecordingRunner runner = new RecordingRunner();
         new PlanExecutor(runner, EventEmitter.NOOP).execute(plan);
 
-        assertEquals(List.of("t1", "t2", "t3"), runner.order);
+        // Day 19 并行执行：依赖序仍保证（t1 先于 t2/t3），但同层兄弟（t2/t3）顺序不保证
+        assertEquals("t1", runner.order.get(0));
+        assertTrue(runner.order.containsAll(List.of("t1", "t2", "t3")));
         assertEquals(Task.Status.DONE, plan.byId("t1").status());
         assertEquals(Task.Status.DONE, plan.byId("t2").status());
         assertEquals(Task.Status.DONE, plan.byId("t3").status());

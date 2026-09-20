@@ -104,8 +104,9 @@ public final class TraceRecorder implements EventEmitter {
         writer.close();
     }
 
+    /** 落盘可能被并行的 plan 任务并发调用 → synchronized 保整行写入。 */
     @Override
-    public void emit(String type, Map<String, Object> payload) {
+    public synchronized void emit(String type, Map<String, Object> payload) {
         try {
             if (!metaWritten) {
                 writeMeta(payload.containsKey("input") ? String.valueOf(payload.get("input")) : "");

@@ -1,5 +1,6 @@
 package com.agentcli.agent;
 
+import com.agentcli.context.HistoryCompactor;
 import com.agentcli.hitl.Approver;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.Message;
@@ -28,7 +29,13 @@ public final class SubAgent implements TaskRunner {
 
     /** Day 18：计划任务内的工具调用同样过审批层，不绕过安全线。 */
     public SubAgent(ChatClient client, ToolRegistry registry, EventEmitter events, Approver approver) {
-        this.agent = new Agent(client, registry, events, approver);
+        this(client, registry, events, approver, null, 0);
+    }
+
+    /** Day 19：带上下文压缩的计划子执行体（长任务同样不爆窗）。 */
+    public SubAgent(ChatClient client, ToolRegistry registry, EventEmitter events, Approver approver,
+                    HistoryCompactor compactor, long windowTokens) {
+        this.agent = new Agent(client, registry, events, approver, compactor, windowTokens);
     }
 
     @Override

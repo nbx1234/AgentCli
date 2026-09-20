@@ -1,5 +1,7 @@
 package com.agentcli.agent;
 
+import com.agentcli.context.HistoryCompactor;
+import com.agentcli.context.TokenEstimator;
 import com.agentcli.hitl.Approver;
 import com.agentcli.llm.ChatClient;
 import com.agentcli.llm.LlmResponse;
@@ -20,6 +22,7 @@ import java.util.stream.Collectors;
  *
  * 每轮：调 LLM → 若返回 tool_calls 则逐个执行、以 role=tool 结果回传、再调 LLM，
  * 直到某轮不再返回 tool_calls，此时 content 即最终答案。
+ * Day 19：每轮开始前按 Token 估算触发上下文压缩，长对话不爆窗。
  */
 public class Agent {
 
@@ -29,11 +32,21 @@ public class Agent {
     /** tool 结果回传给 LLM 的最大长度，超出截断并标注。 */
     private static final int TOOL_RESULT_MAX = 8 * 1024;
 
+    /** 上下窗口默认 64k token；预留摘要 8k + 安全缓冲 6k → 触发阈值 ≈ 50k。 */
+    private static final long DEFAULT_CONTEXT_WINDOW = 65536;
+    private static final long RESERVE_SUMMARY = 8 * 1024;
+    private static final long SAFETY_BUFFER = 6 * 1024;
+
     private final ChatClient client;
     private final ToolRegistry registry;
     private final EventEmitter events;
     /** Day 18：HITL 审批器；null 表示不介入（测试/无审批环境）。 */
     private final Approver approver;
+    /** Day 19：上下文压缩器；null 表示禁用自动压缩。 */
+    private final HistoryCompactor compactor;
+    private final TokenEstimator estimator = new TokenEstimator();
+    /** 压缩触发阈值（token）。 */
+    private final long compactThreshold;
 
     public Agent(ChatClient client, ToolRegistry registry) {
         this(client, registry, EventEmitter.NOOP, null);
@@ -44,10 +57,35 @@ public class Agent {
     }
 
     public Agent(ChatClient client, ToolRegistry registry, EventEmitter events, Approver approver) {
+        this(client, registry, events, approver, null);
+    }
+
+    /** Day 19：带上下文压缩器的构造；windowTokens 为 0/负数时用默认 64k。 */
+    public Agent(ChatClient client, ToolRegistry registry, EventEmitter events, Approver approver,
+                 HistoryCompactor compactor) {
+        this(client, registry, events, approver, compactor, 0);
+    }
+
+    /** 完整构造：可显式指定上下文窗口（token）。 */
+    public Agent(ChatClient client, ToolRegistry registry, EventEmitter events, Approver approver,
+                 HistoryCompactor compactor, long windowTokens) {
         this.client = client;
         this.registry = registry;
         this.events = events;
         this.approver = approver;
+        this.compactor = compactor;
+        long window = windowTokens <= 0 ? DEFAULT_CONTEXT_WINDOW : windowTokens;
+        this.compactThreshold = window - RESERVE_SUMMARY - SAFETY_BUFFER;
+    }
+
+    /** 当前压缩触发阈值（token），供 /ctx 展示。 */
+    public long compactThreshold() {
+        return compactThreshold;
+    }
+
+    /** 估算当前历史 token 占用，供 /ctx 展示。 */
+    public int estimate(List<Message> history) {
+        return estimator.estimate(history);
     }
 
     /**
@@ -67,6 +105,21 @@ public class Agent {
             while (true) {
                 if (++iteration > MAX_ITERATIONS) {
                     throw new IllegalStateException("达到最大迭代次数(" + MAX_ITERATIONS + ")，任务未完成");
+                }
+                // Day 19：每轮开始前按 Token 估算触发压缩（同步，Web 时间线可见 compact_start/end）
+                if (compactor != null && estimator.estimate(history) > compactThreshold) {
+                    int before = estimator.estimate(history);
+                    events.emit("compact_start", EventPayload.create("compact_start")
+                            .iteration(iteration).put("before", before)
+                            .put("threshold", compactThreshold).build());
+                    List<Message> compacted = compactor.compact(history);
+                    history.clear();
+                    history.addAll(compacted);
+                    int after = estimator.estimate(history);
+                    printCompact(before, after);
+                    events.emit("compact_end", EventPayload.create("compact_end")
+                            .iteration(iteration).put("before", before).put("after", after)
+                            .put("preview", "压缩: " + before + " → " + after + " tokens").build());
                 }
                 List<Message> messages = new ArrayList<>();
                 messages.add(new Message("system", SystemPrompt.build() + toolGuidance(tools)));
@@ -118,6 +171,11 @@ public class Agent {
             }
             throw e;
         }
+    }
+
+    /** 终端可见的压缩反馈。 */
+    private void printCompact(int before, int after) {
+        System.out.println("[compact] 上下文超阈值，LLM 摘要压缩: " + before + " → " + after + " tokens");
     }
 
     /** 把最终回答切成若干片增量，逐条 emit answer_delta，让浏览器"逐字出现"。 */
